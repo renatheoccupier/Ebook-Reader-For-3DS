@@ -44,7 +44,8 @@ void loadTrans(string file)
 	if(!hasBom) is.seekg(0);
 	for(int i = 0; is && i < LWord::totalWords; i++) {
 		getline(is, locDict[i]);
-		if(locDict[i][locDict[i].size() - 1] == '\r') locDict[i].erase(locDict[i].size() - 1);
+		if(!locDict[i].empty() && locDict[i][locDict[i].size() - 1] == '\r')
+			locDict[i].erase(locDict[i].size() - 1);
 	}
 	if(locDict[LWord::invert] == "Invert") locDict[LWord::invert] = "Low light";
 	if(locDict[LWord::colors] == "Colors") locDict[LWord::colors] = "Night";

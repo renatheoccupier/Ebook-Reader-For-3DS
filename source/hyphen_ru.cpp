@@ -53,21 +53,28 @@ vector<bool> hyphen_pos(const string& word_str, u32 strstart, u32 strsend, Encod
 	for(int k = start; k < end && k < 30; k++) {
 		for(int i = 0; (u32)i < sizeof(rules)/sizeof(rule); i++) {
 			u32 j = 0;
-			for(; j < rules[i].pattern.length(); j++)
-				if(rules[i].pattern[j] != mask[k + j]) break;
+			for(; j < rules[i].pattern.length(); j++) {
+				const u32 index = k + j;
+				if(index >= mask.length() || rules[i].pattern[j] != mask[index]) break;
+			}
 			if(j == rules[i].pattern.length()) {
 				if(i == 0) {	
 					if(k < start + 2) continue; // "съ-есть"
+					if(k + (int)j + 1 >= (int)mask.length()) continue;
 					if(mask[k + j] == not_letter || mask[k + j + 1] == not_letter) continue; //"крутить--вертеть"
 				}
 				else if(i == 1) {	
+					if(k + (int)j >= (int)mask.length()) continue;
 					if(mask[k + j] == not_letter) continue; //каки-е-то
 				}
-				out[k + rules[i].pos] = true;
+				if(k + rules[i].pos < (int)out.size())
+					out[k + rules[i].pos] = true;
 			}
 		}
 	}
 	int pos[] = {start, end, end - 1};
-	for(u32 i = 0; i < sizeof(pos)/sizeof(pos[0]); i++) out[pos[i]] = false;
+	for(u32 i = 0; i < sizeof(pos)/sizeof(pos[0]); i++)
+		if(pos[i] >= 0 && pos[i] < (int)out.size())
+			out[pos[i]] = false;
 	return out;
 }

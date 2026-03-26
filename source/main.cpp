@@ -3,6 +3,7 @@
 #include "settings.h"
 #include "button.h"
 #include "file_browser.h"
+#include "utf8.h"
 
 #include <dirent.h>
 #include <fstream>
@@ -10,31 +11,106 @@
 namespace
 {
 
-const string kMenuTitle("Rena");
-const string kMenuSubtitle("EPUB Reader for 3DS");
+const string kMenuTitle("EBook Reader");
+const string kMenuSubtitle("Nintendo 3DS EPUB Library");
 
-void drawMenuInfoLine(int y, const string& label, const string& value, u32 valueFont = 12)
+int statusTop()
 {
-	renderer::printStr(eUtf8, top_scr, 18, y, label, 0, 0, 11);
-	renderer::printStr(eUtf8, top_scr, 18, y + 15, value, 0, 0, valueFont);
+	return screens::layoutY() - buttonFontSize * 3 / 2;
+}
+
+void drawCardTitle(int x, int y, const string& title)
+{
+	renderer::printStr(eUtf8, top_scr, x, y, title, 0, 0, 10);
+}
+
+u32 advanceUtf8(const string& str, u32 start, int count)
+{
+	const char* it = str.c_str() + start;
+	const char* end = str.c_str() + str.size();
+	for(int i = 0; i < count && it < end; ++i)
+		utf8::unchecked::next(it);
+	return it - str.c_str();
+}
+
+u32 clippedUtf8End(const string& str, u32 start, int width, u32 fontSize)
+{
+	int breakat = 0;
+	renderer::strWidth(eUtf8, str, start, 0, fontSize, fnormal, &breakat, width);
+	if(breakat <= 0) breakat = 1;
+	return advanceUtf8(str, start, breakat);
+}
+
+string ellipsizedSlice(const string& text, u32 start, int width, u32 fontSize)
+{
+	const u32 end = clippedUtf8End(text, start, width, fontSize);
+	if(end >= text.size()) return text.substr(start, end - start);
+
+	const string ellipsis("...");
+	const int ellipsisWidth = renderer::strWidth(eUtf8, ellipsis, 0, 0, fontSize);
+	if(ellipsisWidth >= width) return text.substr(start, end - start);
+
+	const u32 clipped = clippedUtf8End(text, start, width - ellipsisWidth, fontSize);
+	return text.substr(start, clipped - start) + ellipsis;
+}
+
+void drawCardValue(int x, int y, int width, const string& value, u32 fontSize, u32 maxLines)
+{
+	const string text = value.empty() ? string("None") : value;
+	u32 start = 0;
+	int baseline = y;
+	for(u32 line = 0; line < maxLines && start < text.size(); ++line) {
+		u32 end = clippedUtf8End(text, start, width, fontSize);
+		if(line + 1 < maxLines || end >= text.size())
+			renderer::printStr(eUtf8, top_scr, x, baseline, text, start, end, fontSize);
+		else {
+			const string clipped = ellipsizedSlice(text, start, width, fontSize);
+			renderer::printStr(eUtf8, top_scr, x, baseline, clipped, 0, 0, fontSize);
+			break;
+		}
+		start = end;
+		while(start < text.size() && text[start] == ' ') ++start;
+		baseline += fontSize + 2;
+	}
+}
+
+string compactValue(const string& text, int width, u32 fontSize)
+{
+	if(text.empty()) return string("None");
+	if(renderer::strWidth(eUtf8, text, 0, 0, fontSize) <= width) return text;
+	return ellipsizedSlice(text, 0, width, fontSize);
 }
 
 void drawMenuTopScreen()
 {
 	const int width = screens::layoutX();
-	const int titleWidth = renderer::strWidth(eUtf8, kMenuTitle, 0, 0, 28);
-	const int subtitleWidth = renderer::strWidth(eUtf8, kMenuSubtitle, 0, 0, 13);
-	const int titleX = MAX(12, (width - titleWidth) / 2);
-	const int subtitleX = MAX(12, (width - subtitleWidth) / 2);
+	const int clockTop = statusTop();
 
-	renderer::printStr(eUtf8, top_scr, titleX, 34, kMenuTitle, 0, 0, 28);
-	renderer::fillRect(MAX(14, titleX - 6), 42, MIN(width - 14, titleX + titleWidth + 6), 44, Blend(112), top_scr);
-	renderer::printStr(eUtf8, top_scr, subtitleX, 64, kMenuSubtitle, 0, 0, 13);
+	renderer::clearScreens(settings::bgCol, top_scr);
+	renderer::fillRect(0, 0, width, 44, Blend(32), top_scr);
+	renderer::printStr(eUtf8, top_scr, 12, 22, kMenuTitle, 0, 0, 24);
+	renderer::printStr(eUtf8, top_scr, 14, 38, kMenuSubtitle, 0, 0, 11);
 
-	renderer::rect(14, 82, width - 14, 214, top_scr);
-	drawMenuInfoLine(94, "Books", "sdmc:/books/ or " + appBooksPath(), 10);
-	drawMenuInfoLine(132, "Data", appDataPath(), 10);
-	drawMenuInfoLine(170, "Recent", settings::recent_book.empty() ? "None" : noPath(settings::recent_book), 12);
+	const int cardGap = 8;
+	const int left = 12;
+	const int right = width - 12;
+	const int topRowY1 = 54;
+	const int topRowY2 = 128;
+	const int mid = (left + right) / 2;
+
+	renderer::rect(left, topRowY1, mid - cardGap / 2, topRowY2, top_scr);
+	renderer::rect(mid + cardGap / 2, topRowY1, right, topRowY2, top_scr);
+	renderer::rect(left, 138, right, clockTop - 8, top_scr);
+
+	drawCardTitle(left + 8, topRowY1 + 14, "Recent");
+	drawCardValue(left + 8, topRowY1 + 34, mid - left - 20, settings::recent_book.empty() ? "Open Files to pick a book." : noPath(settings::recent_book), 12, 3);
+
+	drawCardTitle(mid + cardGap / 2 + 8, topRowY1 + 14, "Library");
+	renderer::printStr(eUtf8, top_scr, mid + cardGap / 2 + 8, topRowY1 + 38, compactValue("sdmc:/books/", right - mid - cardGap / 2 - 20, 10), 0, 0, 10);
+	renderer::printStr(eUtf8, top_scr, mid + cardGap / 2 + 8, topRowY1 + 52, compactValue(appBooksPath(), right - mid - cardGap / 2 - 20, 10), 0, 0, 10);
+
+	drawCardTitle(left + 8, 152, "Controls");
+	drawCardValue(left + 8, 172, right - left - 20, "Touch a tile or use A/Right to open files. Start exits the app. Reading uses both screens.", 10, 4);
 	renderer::printClock(top_scr, true);
 }
 
@@ -54,6 +130,7 @@ static grid menu(0);
 
 void drawMenu()
 {
+	renderer::setTopScreenMirror(false);
 	menu = grid(0);
 	if(book_ok(settings::recent_book)) menu.push(SAY(resume), 1);
 	menu.push(SAY(files), 2);

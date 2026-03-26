@@ -7,6 +7,8 @@ typedef std::pair<entity, button> fbutton;
 
 struct file_browser
 {
+	file_browser() : previewWidth(0), previewHeight(0), previewHasImage(false), previewPending(false), previewDelayFrames(0),
+		promptActive(false), pos(0), cursor(0), num(0) {}
 	string run();
 private:
 	void cd(), upd();
@@ -18,7 +20,7 @@ private:
 	void clampCursor();
 	bool tickPreview();
 	void syncPreviewToCursor(bool force = false);
-	void activateCursor();
+	string activateCursor();
 	
 	vector<entry> flist;
 	vector<fbutton> buttons;

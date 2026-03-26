@@ -20,6 +20,7 @@ namespace
 
 typedef std::map<string, unz_file_pos> zip_index_map;
 const u32 kOpenProgressUpdateStep = 8u;
+const u32 kMaxImageEntryBytes = 8u * 1024u * 1024u;
 
 bool buildZipIndex(unzFile zip, zip_index_map& index)
 {
@@ -75,6 +76,17 @@ bool loadFromZip(unzFile& zip, const string& file, char *&buf, u32& size, bool f
 		return false;
 	}
 	buf[size] = '\0';
+	return true;
+}
+
+bool zipEntrySize(unzFile& zip, const string& file, u32& size, const zip_index_map* index = NULL)
+{
+	size = 0;
+	if(!locateZipEntry(zip, file, index)) return false;
+	unz_file_info info;
+	if(unzGetCurrentFileInfo(zip, &info, NULL, 0, NULL, 0, NULL, 0) != UNZ_OK)
+		return false;
+	size = info.uncompressed_size;
 	return true;
 }
 
@@ -160,22 +172,6 @@ pugi::xml_node findNodeByName(const pugi::xml_node& node, const char* name)
 		if(found) return found;
 	}
 	return pugi::xml_node();
-}
-
-string chapterBasePath(const pugi::xml_node& node)
-{
-	for(pugi::xml_node cur = node; cur; cur = cur.parent())
-		if(!strcmp(cur.name(), "chapter"))
-			return cur.attribute("base").value();
-	return string();
-}
-
-string chapterPath(const pugi::xml_node& node)
-{
-	for(pugi::xml_node cur = node; cur; cur = cur.parent())
-		if(!strcmp(cur.name(), "chapter"))
-			return cur.attribute("path").value();
-	return string();
 }
 
 string collapseWhitespace(const string& text)
@@ -411,14 +407,6 @@ bool decodeJpeg(const char* data, u32 size, u16 max_width, u16 max_height, vecto
 		return false;
 	}
 
-	vector<unsigned char> rgb(src_width * src_height * comp);
-	while(cinfo.output_scanline < src_height) {
-		JSAMPROW row = &rgb[cinfo.output_scanline * src_width * comp];
-		jpeg_read_scanlines(&cinfo, &row, 1);
-	}
-	jpeg_finish_decompress(&cinfo);
-	jpeg_destroy_decompress(&cinfo);
-
 	u32 dst_width = src_width;
 	u32 dst_height = src_height;
 	if(dst_width > max_width || dst_height > max_height) {
@@ -435,16 +423,31 @@ bool decodeJpeg(const char* data, u32 size, u16 max_width, u16 max_height, vecto
 	if(0 == dst_height) dst_height = 1;
 
 	pixels.resize(dst_width * dst_height);
-	for(u32 y = 0; y < dst_height; ++y) {
-		const u32 src_y = (y * src_height) / dst_height;
-		for(u32 x = 0; x < dst_width; ++x) {
-			const u32 src_x = (x * src_width) / dst_width;
-			const u32 index = (src_y * src_width + src_x) * comp;
-			u8 r = rgb[index];
-			u8 g = (comp == 3) ? rgb[index + 1] : r;
-			u8 b = (comp == 3) ? rgb[index + 2] : r;
-			pixels[y * dst_width + x] = imagePixel(r, g, b);
+	vector<unsigned char> row(src_width * comp);
+	u32 next_dst_y = 0;
+	while(cinfo.output_scanline < src_height) {
+		JSAMPROW row_ptr = &row[0];
+		jpeg_read_scanlines(&cinfo, &row_ptr, 1);
+		const u32 src_y = cinfo.output_scanline - 1u;
+		while(next_dst_y < dst_height && ((next_dst_y * src_height) / dst_height) <= src_y) {
+			for(u32 x = 0; x < dst_width; ++x) {
+				const u32 src_x = (x * src_width) / dst_width;
+				const u32 index = src_x * comp;
+				const u8 r = row[index];
+				const u8 g = (comp == 3) ? row[index + 1] : r;
+				const u8 b = (comp == 3) ? row[index + 2] : r;
+				pixels[next_dst_y * dst_width + x] = imagePixel(r, g, b);
+			}
+			++next_dst_y;
 		}
+	}
+	jpeg_finish_decompress(&cinfo);
+	jpeg_destroy_decompress(&cinfo);
+	while(next_dst_y < dst_height) {
+		const u32 copy_from = (next_dst_y == 0) ? 0 : (next_dst_y - 1u);
+		for(u32 x = 0; x < dst_width; ++x)
+			pixels[next_dst_y * dst_width + x] = pixels[copy_from * dst_width + x];
+		++next_dst_y;
 	}
 
 	width = dst_width;
@@ -489,7 +492,7 @@ void epub_book :: clearImageCache()
 	imageCacheStamp = 1;
 }
 
-bool epub_book :: tryLoadCachedImage(const string& zip_path, u16 max_width, u16 max_height)
+bool epub_book :: tryLoadCachedImage(const string& zip_path, u16 max_width, u16 max_height, paragrath& target)
 {
 	const bool themed = settings::nightMode() || settings::lowLightMode();
 	for(u32 i = 0; i < imageCache.size(); ++i) {
@@ -500,10 +503,10 @@ bool epub_book :: tryLoadCachedImage(const string& zip_path, u16 max_width, u16 
 			entry.fCol.R != settings::fCol.R || entry.fCol.G != settings::fCol.G || entry.fCol.B != settings::fCol.B))
 			continue;
 
-		parag.image_ref = zip_path;
-		parag.image_pixels = entry.pixels;
-		parag.image_width = entry.width;
-		parag.image_height = entry.height;
+		target.image_ref = zip_path;
+		target.image_pixels = entry.pixels;
+		target.image_width = entry.width;
+		target.image_height = entry.height;
 		entry.stamp = imageCacheStamp++;
 		return true;
 	}
@@ -547,8 +550,8 @@ void epub_book :: parse()
 	zip_index.clear();
 	clearImageCache();
 	closeArchive();
-	document.reset();
-	pugi::xml_node book = document.append_child("book");
+	currentChapterPath.clear();
+	currentChapterBase.clear();
 	const char err[] = "epub_book::parse:Can't load epub.";
 
 	char *buf = NULL;
@@ -614,16 +617,19 @@ void epub_book :: parse()
 		result = chapter_doc.load_buffer_inplace(buf, size);
 		if(result.status == pugi::status_out_of_memory) bsod("epub_book::parse:Out of memory.");
 		if(result.status == pugi::status_ok) {
-			pugi::xml_node chapter = book.append_child("chapter");
-			chapter.append_attribute("base").set_value(dirName(chapter_files[i]).c_str());
-			chapter.append_attribute("path").set_value(chapter_files[i].c_str());
+			currentChapterPath = chapter_files[i];
+			currentChapterBase = dirName(chapter_files[i]);
+			if(chapter_targets.find(currentChapterPath) == chapter_targets.end())
+				chapter_targets[currentChapterPath] = par_index.size();
 
+			push_it = true;
 			pugi::xml_node body = findNodeByName(chapter_doc, "body");
-			if(body)
+			if(body) {
 				for(pugi::xml_node child = body.first_child(); child; child = child.next_sibling())
-					chapter.append_copy(child);
+					parse_doc(child);
+			}
 			else if(chapter_doc.document_element())
-				chapter.append_copy(chapter_doc.document_element());
+				parse_doc(chapter_doc.document_element());
 		}
 		delete[] buf;
 		buf = NULL;
@@ -631,8 +637,6 @@ void epub_book :: parse()
 
 	consoleClear();
 	iprintf("parsing...\n");
-	push_it = true;
-	parse_doc(document);
 	vector<toc_link> toc_links;
 	if(!nav_file.empty()) loadHtmlTocLinks(archive, nav_file, toc_links, &zip_index);
 	if(toc_links.empty() && !ncx_file.empty()) loadNcxTocLinks(archive, ncx_file, toc_links, &zip_index);
@@ -668,30 +672,43 @@ static const string br_tags = " br ";
 
 bool epub_book :: load_image(const string& zip_path)
 {
-	parag.image_pixels.clear();
-	parag.image_width = parag.image_height = 0;
-	parag.image_ref = zip_path;
+	return load_image_into(parag, zip_path);
+}
 
+bool epub_book :: load_image_into(paragrath& target, const string& zip_path)
+{
+	target.image_pixels.clear();
+	target.image_width = target.image_height = 0;
+	target.image_ref = zip_path;
 	if(zip_path.empty()) return false;
 
 	const u16 max_width = imagePanelWidth();
 	const u16 max_height = imagePanelHeight();
-	if(tryLoadCachedImage(zip_path, max_width, max_height)) return true;
+	if(tryLoadCachedImage(zip_path, max_width, max_height, target)) return true;
 
 	char* buf = NULL;
 	u32 size = 0;
 	if(!ensureArchiveOpen()) return false;
+	if(!zipEntrySize(archive, zip_path, size, &zip_index) || size > kMaxImageEntryBytes)
+		return false;
 	const bool loaded = loadFromZip(archive, zip_path, buf, size, false, &zip_index);
 	if(!loaded || NULL == buf) return false;
 
 	bool ok = false;
 	if(size > 2u && (u8)buf[0] == 0xFF && (u8)buf[1] == 0xD8)
-		ok = decodeJpeg(buf, size, max_width, max_height, parag.image_pixels, parag.image_width, parag.image_height);
+		ok = decodeJpeg(buf, size, max_width, max_height, target.image_pixels, target.image_width, target.image_height);
 
 	delete[] buf;
 	if(ok)
-		storeCachedImage(zip_path, parag.image_pixels, parag.image_width, parag.image_height, max_width, max_height);
+		storeCachedImage(zip_path, target.image_pixels, target.image_width, target.image_height, max_width, max_height);
 	return ok;
+}
+
+void epub_book :: refreshCachedParagraph(paragrath& paragraph)
+{
+	if(paragraph.type != pimage || !paragraph.image_pixels.empty() || paragraph.image_ref.empty())
+		return;
+	load_image_into(paragraph, paragraph.image_ref);
 }
 
 void epub_book :: parag_str (int parag_num)
@@ -706,26 +723,21 @@ void epub_book :: parag_str (int parag_num)
 		}
 		return;
 	}
-	if(entry.node) extract_par(entry.node);
+	parag.type = entry.type;
+	parag.str = entry.str;
+	parag.marks = entry.marks;
 }
 
 int epub_book :: parse_doc(const pugi::xml_node& node)
 {
 	bool newl, ret, br;
 	string tag = node.name();
-	if(tag == "chapter") {
-		const string path = node.attribute("path").value();
-		if(!path.empty() && chapter_targets.find(path) == chapter_targets.end())
-			chapter_targets[path] = par_index.size();
-	}
-
-	const string currentChapter = chapterPath(node);
-	if(!currentChapter.empty()) {
+	if(!currentChapterPath.empty()) {
 		const char* attrs[2] = {"id", "name"};
 		for(u32 i = 0; i < 2; ++i) {
 			const char* value = node.attribute(attrs[i]).value();
 			if(!value || !value[0]) continue;
-			string anchorKey = currentChapter + "#" + value;
+			string anchorKey = currentChapterPath + "#" + value;
 			if(anchor_targets.find(anchorKey) != anchor_targets.end()) continue;
 			u32 target = par_index.size();
 			if(!push_it && !par_index.empty()) target = par_index.size() - 1u;
@@ -733,7 +745,7 @@ int epub_book :: parse_doc(const pugi::xml_node& node)
 		}
 	}
 	if(tag == "img") {
-		string path = normalizeZipPath(chapterBasePath(node), node.attribute("src").value());
+		string path = normalizeZipPath(currentChapterBase, node.attribute("src").value());
 		if(!path.empty()) {
 			par_index.push_back(epub_entry(path));
 			push_it = false;
@@ -746,8 +758,11 @@ int epub_book :: parse_doc(const pugi::xml_node& node)
 	ret = !tag.empty() && string::npos != string(" title script style binary image svg ").find(' '+tag+' ');
 
 	if (newl) {
-		if(br) par_index.push_back(epub_entry(node.next_sibling()));
-		else if (push_it) par_index.push_back(epub_entry(node));
+		if(br) {
+			if(node.next_sibling()) appendTextEntry(node.next_sibling());
+			else appendEmptyEntry();
+		}
+		else if (push_it) appendTextEntry(node);
 		push_it = false;
 	}
 	if (ret) return 0;
@@ -757,13 +772,34 @@ int epub_book :: parse_doc(const pugi::xml_node& node)
 		if (r == -1) return -1;
 	}
 	if (newl && !br) {
-		if (push_it) par_index.push_back(epub_entry()); //null node, means empty string
+		if (push_it) appendEmptyEntry();
 		push_it = true;
 	}
 	return 0;
 }
 
-int epub_book :: extract_par(const pugi::xml_node& node)
+void epub_book :: appendTextEntry(const pugi::xml_node& node)
+{
+	if(!node) {
+		appendEmptyEntry();
+		return;
+	}
+
+	paragrath parsed;
+	extract_par(node, parsed);
+	epub_entry entry;
+	entry.type = parsed.type;
+	entry.str = parsed.str;
+	entry.marks.swap(parsed.marks);
+	par_index.push_back(entry);
+}
+
+void epub_book :: appendEmptyEntry()
+{
+	par_index.push_back(epub_entry());
+}
+
+int epub_book :: extract_par(const pugi::xml_node& node, paragrath& target)
 {
 	bool newl, nospace, ret, isTitle, bold, italic;
 	{
@@ -773,36 +809,36 @@ int epub_book :: extract_par(const pugi::xml_node& node)
 		isTitle = !parentTag.empty() && string::npos != string(" title h1 h2 h3 h4 h5 h6 ").find(' '+parentTag+' ');
 		isTitle |= !tag.empty() && string::npos != string(" title h1 h2 h3 h4 h5 h6 ").find(' '+tag+' ');
 
-		bold = (parentTag == "b") || (parentTag == "strong");
-		italic = ("i" == parentTag)  || ("em" == parentTag);
-		nospace = (bold || italic) || (!parentTag.empty() && string::npos != string(" b tt big small ").find(' '+parentTag+' '));
-		ret = !tag.empty() && string::npos != string(" script style binary image img svg ").find(' '+tag+' ');
-	}
+			bold = (parentTag == "b") || (parentTag == "strong");
+			italic = ("i" == parentTag)  || ("em" == parentTag);
+			nospace = (bold || italic) || (!parentTag.empty() && string::npos != string(" b tt big small ").find(' '+parentTag+' '));
+			ret = !tag.empty() && string::npos != string(" script style binary image img svg ").find(' '+tag+' ');
+		}
 	if (ret) return 0;
-	if(isTitle) parag.type = ptitle;
+	if(isTitle) target.type = ptitle;
 
 	if(bold) {
-		const int pos = parag.str.length();
+		const int pos = target.str.length();
 		marked mark = {pos, pos, fbold};
-		parag.marks.push_back(mark);
+		target.marks.push_back(mark);
 	}
 	else if(italic) {
-		const int pos = parag.str.length();
+		const int pos = target.str.length();
 		marked mark = {pos, pos, fitalic};
-		parag.marks.push_back(mark);
+		target.marks.push_back(mark);
 	}
 
-	if (node.type() == pugi::node_pcdata) parag.str += node.value();
+	if (node.type() == pugi::node_pcdata) target.str += node.value();
 	for(pugi::xml_node elem = node.first_child(); elem; elem = elem.next_sibling()) {
-		int r = extract_par(elem);
+		int r = extract_par(elem, target);
 		if (r == -1) return -1;
 	}
 
-	if((italic || bold) && parag.marks.size()) {
-		parag.marks.back().end = parag.str.length();
+	if((italic || bold) && target.marks.size()) {
+		target.marks.back().end = target.str.length();
 	}
 
 	if (newl) return -1;
-	else if (node.type() == pugi::node_pcdata && !nospace && node.parent().next_sibling()) parag.str += ' ';
+	else if (node.type() == pugi::node_pcdata && !nospace && node.parent().next_sibling()) target.str += ' ';
 	return 0;
 }

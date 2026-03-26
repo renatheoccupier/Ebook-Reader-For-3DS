@@ -27,6 +27,8 @@ namespace renderer
 	void shutdownVideo();
 	void initFonts();
 	void present();
+	void markDirty();
+	void setTopScreenMirror(bool enabled);
 	void clearScreens(u16 color, u8 onlyone = 42);
 	void rect(u16 x1, u16 y1, u16 x2, u16 y2, scr_id = bottom_scr);
 	void fillRect(u16 x1, u16 y1, u16 x2, u16 y2, u16 col, scr_id = bottom_scr);
@@ -41,12 +43,14 @@ namespace renderer
 	{ 
 		toLayoutSpace(x, y);
 		if(x < 0 || x >= kBufferWidth || y < 0 || y >= kBufferHeight) return;
+		markDirty();
 		bmp[scr][y * kBufferWidth + x] = color;
 	}
 	inline void putPixel(scr_id scr, int x, int y, Color c24)
 	{ 
 		toLayoutSpace(x, y);
 		if(x < 0 || x >= kBufferWidth || y < 0 || y >= kBufferHeight) return;
+		markDirty();
 		u16 p = bmp[scr][y * kBufferWidth + x];
 		u8 r = p & 0x1F;
 		u8 g = (p>>5) & 0x1F;

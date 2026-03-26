@@ -63,6 +63,7 @@ bool promptSearchText(string& searchstr)
 
 void drawSearchPanel(const string& searchstr, bool doCI, const string& status, button& prev, button& next, button& toggle, button& edit, button& close)
 {
+	renderer::setTopScreenMirror(true);
 	renderer::clearScreens(settings::bgCol, bottom_scr);
 	renderer::printStr(eUtf8, bottom_scr, 10, 20, "Search", 0, 0, 18);
 	renderer::printStr(eUtf8, bottom_scr, 10, 42, compactText(searchstr, 38), 0, 0, 12);
@@ -91,6 +92,7 @@ void Book::search()
 	const Layout old_layout = settings::layout;
 	settings::layout = d0;
 	current_page.line_num = 0;
+	clearParagraphCache();
 	draw_page(true);
 	setBacklightMode(blOverlay);
 
@@ -168,6 +170,7 @@ void Book::search()
 	}
 
 	settings::layout = old_layout;
+	clearParagraphCache();
 	if(appShouldExit()) return;
 	draw_page();
 }

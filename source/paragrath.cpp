@@ -49,8 +49,10 @@ void Book :: parsePar()
 
 		if (word.width > space_left - space_width) {
 			if(parag.type != ptitle) while(hyphenate(&word, space_left, actual_style));
-			parag.lines.back().width += space_width * (parag.lines.back().words.size() - 1);
-			parag.lines.push_back(Line());
+			if(!parag.lines.back().words.empty()) {
+				parag.lines.back().width += space_width * (parag.lines.back().words.size() - 1);
+				parag.lines.push_back(Line());
+			}
 			space_left = screens::line_width() - word.width;
 		}
 		else space_left = space_left - (word.width + space_width);
@@ -104,12 +106,13 @@ bool Book :: hyphenate(Word* word_it, int& space_left, fontStyle style)
 			parag.lines.back().words.push_back(*word_it);
 			parag.lines.back().width += word_it->width;
 			*word_it = second_half;
-		}
-		if(word_it->width > screens::line_width()) {
-			parag.lines.back().width += space_width * (parag.lines.back().words.size() - 1);
-			parag.lines.push_back(Line());
-			space_left = screens::line_width() - hyph_width;
-			return true;
+			}
+			if(word_it->width > screens::line_width()) {
+				if(!parag.lines.back().words.empty())
+					parag.lines.back().width += space_width * (parag.lines.back().words.size() - 1);
+				parag.lines.push_back(Line());
+				space_left = screens::line_width() - hyph_width;
+				return true;
 		}
 	}
 	return false;

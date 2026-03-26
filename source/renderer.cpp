@@ -7,6 +7,7 @@
 #include <cstring>
 #include <dirent.h>
 #include <set>
+#include <sys/stat.h>
 
 #include FT_LCD_FILTER_H
 #include FT_CACHE_H
@@ -20,6 +21,8 @@ TFlashClock flashClock;
 static u16 gBuffers[2][kBufferWidth * kBufferHeight];
 static u16 gFlashBuffer[kBufferWidth * kBufferHeight];
 static bool gVideoReady = false;
+static bool gFrameDirty = false;
+static bool gMirrorTopFromBottom = false;
 
 static const u8 gamma150[32] = {0, 0, 1, 1, 1, 2, 3, 3, 4, 5, 6, 7, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 19, 20, 21, 22, 24, 25, 27, 28, 30, 31};
 static const u8 gamma067[32] = {0, 3, 5, 7, 8, 9, 10, 11, 13, 14, 15, 16, 16, 17, 18, 19, 20, 21, 22, 22, 23, 24, 25, 25, 26, 27, 28, 28, 29, 30, 30, 31};
@@ -27,11 +30,42 @@ static const u8 gamma067[32] = {0, 3, 5, 7, 8, 9, 10, 11, 13, 14, 15, 16, 16, 17
 namespace
 {
 
-static const int kTopScreenOffsetX = 40;
-
 inline u8 expand5(u8 value)
 {
 	return (value << 3) | (value >> 2);
+}
+
+bool entryIsDirectory(const string& basePath, const dirent* ent)
+{
+	if(ent == NULL) return false;
+	if(ent->d_type == DT_DIR) return true;
+	if(ent->d_type != DT_UNKNOWN) return false;
+
+	struct stat st;
+	return 0 == stat((basePath + ent->d_name).c_str(), &st) && S_ISDIR(st.st_mode);
+}
+
+inline void writeFramebufferPixel(u8* fb, int width, int x, int y, u16 color)
+{
+	if(x < 0 || x >= width || y < 0 || y >= kBufferHeight) return;
+	const int pos = (x * kBufferHeight + (kBufferHeight - 1 - y)) * 3;
+	fb[pos + 0] = expand5((color >> 10) & 0x1F);
+	fb[pos + 1] = expand5((color >> 5) & 0x1F);
+	fb[pos + 2] = expand5(color & 0x1F);
+}
+
+void fillFramebufferRect(u8* fb, int width, int x1, int y1, int x2, int y2, u16 color)
+{
+	if(fb == NULL) return;
+	if(x1 > x2) std::swap(x1, x2);
+	if(y1 > y2) std::swap(y1, y2);
+	x1 = MAX(0, x1);
+	y1 = MAX(0, y1);
+	x2 = MIN(width - 1, x2);
+	y2 = MIN(kBufferHeight - 1, y2);
+	for(int x = x1; x <= x2; ++x)
+		for(int y = y1; y <= y2; ++y)
+			writeFramebufferPixel(fb, width, x, y, color);
 }
 
 void drawStatusBar(scr_id scr, bool framed)
@@ -54,33 +88,22 @@ void drawStatusBar(scr_id scr, bool framed)
 void fillFramebuffer(gfxScreen_t screen, u16 color)
 {
 	const int width = (screen == GFX_TOP) ? 400 : 320;
-	const int height = 240;
 	u8* fb = gfxGetFramebuffer(screen, GFX_LEFT, NULL, NULL);
 	if(fb == NULL) return;
-
-	const u8 r = expand5(color & 0x1F);
-	const u8 g = expand5((color >> 5) & 0x1F);
-	const u8 b = expand5((color >> 10) & 0x1F);
-	for(int x = 0; x < width; ++x) {
-		for(int y = 0; y < height; ++y) {
-			const int pos = (x * height + (height - 1 - y)) * 3;
-			fb[pos + 0] = b;
-			fb[pos + 1] = g;
-			fb[pos + 2] = r;
-		}
-	}
+	fillFramebufferRect(fb, width, 0, 0, width - 1, kBufferHeight - 1, color);
 }
 
-void blitScreen(scr_id scr, gfxScreen_t screen, int offsetX)
+void blitScreen(scr_id scr, gfxScreen_t screen)
 {
 	const int height = 240;
+	const int width = (screen == GFX_TOP) ? 400 : 320;
 	u8* fb = gfxGetFramebuffer(screen, GFX_LEFT, NULL, NULL);
 	if(fb == NULL) return;
 
 	for(int y = 0; y < kBufferHeight; ++y) {
-		for(int x = 0; x < kBufferWidth; ++x) {
-			const int dstX = x + offsetX;
-			const u16 pixel = bmp[scr][y * kBufferWidth + x];
+		for(int dstX = 0; dstX < width; ++dstX) {
+			const int srcX = (dstX * kBufferWidth) / width;
+			const u16 pixel = bmp[scr][y * kBufferWidth + srcX];
 			const int pos = (dstX * height + (height - 1 - y)) * 3;
 			fb[pos + 0] = expand5((pixel >> 10) & 0x1F);
 			fb[pos + 1] = expand5((pixel >> 5) & 0x1F);
@@ -184,6 +207,7 @@ void initVideo()
 	bmp[bottom_scr] = gBuffers[bottom_scr];
 	bmp[top_scr] = gBuffers[top_scr];
 	gVideoReady = true;
+	gFrameDirty = true;
 	clearScreens(0);
 	present();
 }
@@ -193,24 +217,43 @@ void shutdownVideo()
 	if(!gVideoReady) return;
 	gfxExit();
 	gVideoReady = false;
+	gFrameDirty = false;
+}
+
+void markDirty()
+{
+	gFrameDirty = true;
+}
+
+void setTopScreenMirror(bool enabled)
+{
+	if(gMirrorTopFromBottom == enabled) return;
+	gMirrorTopFromBottom = enabled;
+	markDirty();
 }
 
 void present()
 {
 	if(!gVideoReady) return;
+	if(!gFrameDirty) {
+		gspWaitForVBlank();
+		return;
+	}
 	fillFramebuffer(GFX_TOP, settings::bgCol);
 	fillFramebuffer(GFX_BOTTOM, settings::bgCol);
-	blitScreen(top_scr, GFX_TOP, kTopScreenOffsetX);
-	blitScreen(bottom_scr, GFX_BOTTOM, 0);
+	blitScreen(gMirrorTopFromBottom ? bottom_scr : top_scr, GFX_TOP);
+	blitScreen(bottom_scr, GFX_BOTTOM);
 	gfxFlushBuffers();
 	gfxSwapBuffers();
 	gspWaitForVBlank();
+	gFrameDirty = false;
 }
 
 void drawLine(int x1, int y1, int x2, int y2, u16 color, scr_id scr)
 {
 	toLayoutSpace(x1, y1);
 	toLayoutSpace(x2, y2);
+	markDirty();
 
 	int deltaX = abs(x2 - x1);
 	int deltaY = abs(y2 - y1);
@@ -236,6 +279,7 @@ void drawLine(int x1, int y1, int x2, int y2, u16 color, scr_id scr)
 void clearScreens(u16 color, u8 onlyone)
 {
 	const size_t pixels = kBufferWidth * kBufferHeight;
+	markDirty();
 	if(onlyone != top_scr && onlyone != bottom_scr) {
 		std::fill_n(bmp[top_scr], pixels, color);
 		std::fill_n(bmp[bottom_scr], pixels, color);
@@ -493,7 +537,7 @@ void changeFont()
 	struct dirent* ent;
 	std::set<string> files;
 	while((ent = readdir(dir)) != NULL) {
-		if(ent->d_type != DT_DIR && extention(ent->d_name) == "ttf")
+		if(!entryIsDirectory(appFontsPath(), ent) && extention(ent->d_name) == "ttf")
 			files.insert(noExt(ent->d_name));
 	}
 	closedir(dir);

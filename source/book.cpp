@@ -265,6 +265,7 @@ bool Book :: tryLoadCachedParagraph(u32 parag_num)
 		ParagraphCacheEntry& entry = paragraphCache[i];
 		if(!entry.valid || entry.parag_num != parag_num) continue;
 		parag = entry.value;
+		refreshCachedParagraph(parag);
 		entry.stamp = paragraphCacheStamp++;
 		prev_par_num = parag_num;
 		return true;
@@ -290,6 +291,8 @@ void Book :: storeCachedParagraph(u32 parag_num)
 	slot->parag_num = parag_num;
 	slot->stamp = paragraphCacheStamp++;
 	slot->value = parag;
+	if(slot->value.type == pimage && !slot->value.image_ref.empty())
+		vector<u16>().swap(slot->value.image_pixels);
 }
 
 void Book :: queueMarksSave()
@@ -488,6 +491,7 @@ void Book :: previous_line()
 
 void Book :: draw_page(bool onlyTop, bool cachePar)
 {
+	renderer::setTopScreenMirror(false);
 	const backlightMode mode = (onlyTop && settings::scrConf == scTop) ? blReading
 		: (onlyTop ? blBoth : blReading);
 	setBacklightMode(mode);
@@ -746,6 +750,7 @@ void Book :: bookmarkMenu()
 
 void Book :: drawBookmarkMenu()
 {
+	renderer::setTopScreenMirror(true);
 	prbar = progressbar();
 	if(bookmarks.find(current_page) == bookmarks.end()) setMark.setText(SAY2(set));
 	else setMark.setText(SAY2(remove));
@@ -900,6 +905,7 @@ bool Book :: menu()
 				case phone:		tech = linux;	break; default: ;
 			}
 			current_page.line_num = 0;
+			clearParagraphCache();
 			drawMenu(false);
 			settingsDirty = true;
 		}
@@ -994,6 +1000,7 @@ void Book :: drawMenu(bool recache)
 	->push(SAY(sharp))
 	->push(SAY(language));
 	draw_page(true, recache);
+	renderer::setTopScreenMirror(true);
 	renderer::clearScreens(settings::bgCol, bottom_scr);
 	menuGrid.draw();
 	if(settings::lowLightMode()) menuGrid.print(SAY(colors), SAY2(invert));
@@ -1039,6 +1046,7 @@ string fileReq(const string& path)
 
 	vector<button> buttons;
 	int peny = 0;
+	renderer::setTopScreenMirror(true);
 	renderer::clearScreens(settings::bgCol);
 
 	while ((ent = readdir(dir)) != NULL) {
@@ -1048,10 +1056,11 @@ string fileReq(const string& path)
 		if (ent->d_type != DT_DIR)
 		{
 			string filename = ent->d_name;
-			if(extention(filename) == "txt")
+			if(extention(filename) == "txt") {
 				buttons.push_back(button(filename.erase(filename.find_last_of('.')), peny));
-			buttons.back().draw();
-			peny += buttonFontSize;
+				buttons.back().draw();
+				peny += buttonFontSize;
+			}
 		}
 	}
 	closedir(dir);

@@ -75,6 +75,7 @@ protected:
 	bool tocReady;
 	virtual void parse() = 0;
 	virtual void parag_str (int parag_num) = 0;
+	virtual void refreshCachedParagraph(paragrath&) {}
 	void fetch_paragrath (int parag_num) {
 		if(tryLoadCachedParagraph(parag_num)) return;
 		parag_str (parag_num);

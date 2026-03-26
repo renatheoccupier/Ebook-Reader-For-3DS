@@ -273,9 +273,11 @@ scrollbar :: scrollbar()
 void scrollbar :: draw(float pos, float size)
 {
 	renderer::rect(x1,y1,x2,y2); 
-	u8 low_border = y1 + pos * (1 - size) * (y2 - y1);
-	u8 length = size * (y2 - y1);
-	u16 high_border = low_border + length + 1;
+	int low_border = y1 + int(pos * (1.0f - size) * (y2 - y1));
+	int length = int(size * (y2 - y1));
+	if(length < 0) length = 0;
+	int high_border = low_border + length + 1;
+	if(high_border > y2) high_border = y2;
 	renderer::fillRect(x1,low_border, x2, high_border, Blend(128));
 }
 
