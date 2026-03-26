@@ -376,7 +376,7 @@ void Book :: read()
 		else if(keysUp() & KEY_TOUCH) {
 			if(10 > abs(t1.px - t2.px) + abs(t1.py - t2.py)) {
 				if(t2.px == 0) continue;
-				u8 X1 = 0, Y1 = 0, X2 = screens::layoutX()/2, Y2 = screens::layoutY();
+				int X1 = 0, Y1 = 0, X2 = screens::layoutX()/2, Y2 = screens::layoutY();
 				toLayoutSpace(X1, Y1);
 				toLayoutSpace(X2, Y2);
 				if(	!(t2.px >= MIN(X1, X2) && t2.py >= MIN(Y1, Y2) &&

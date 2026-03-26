@@ -46,8 +46,10 @@ inline void RGBtoHSV(u32 ri, u32 gi, u32 bi, u32& hi, u32& si, u32& vi)
 	}
 }
 
-inline Color getPixel(u8 x, u8 y)
+inline Color getPixel(int x, int y)
 { 
+	if(x < 0 || x >= renderer::kBufferWidth || y < 0 || y >= renderer::kBufferHeight)
+		return Color();
 	u16 p = renderer::bmp[bottom_scr][y * renderer::kBufferWidth + x];
 	return Color(p & 0x1F, (p>>5) & 0x1F, (p>>10) & 0x1F);
 }

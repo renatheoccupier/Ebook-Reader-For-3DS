@@ -91,9 +91,10 @@ void blitScreen(scr_id scr, gfxScreen_t screen, int offsetX)
 
 } // namespace
 
-inline void putPixel150(scr_id scr, u8 x, u8 y, Color c24)
+inline void putPixel150(scr_id scr, int x, int y, Color c24)
 {
 	toLayoutSpace(x, y);
+	if(x < 0 || x >= kBufferWidth || y < 0 || y >= kBufferHeight) return;
 	u16 p = bmp[scr][y * kBufferWidth + x];
 	u8 r = p & 0x1F;
 	u8 g = (p >> 5) & 0x1F;
@@ -103,9 +104,10 @@ inline void putPixel150(scr_id scr, u8 x, u8 y, Color c24)
 	bmp[scr][y * kBufferWidth + x] = c5;
 }
 
-inline void putPixel067(scr_id scr, u8 x, u8 y, Color c24)
+inline void putPixel067(scr_id scr, int x, int y, Color c24)
 {
 	toLayoutSpace(x, y);
+	if(x < 0 || x >= kBufferWidth || y < 0 || y >= kBufferHeight) return;
 	u16 p = bmp[scr][y * kBufferWidth + x];
 	u8 r = p & 0x1F;
 	u8 g = (p >> 5) & 0x1F;
@@ -125,7 +127,7 @@ template<class T> inline void swapRB(T& r, T& b, scr_id scr)
 	}
 }
 
-void charLcd(scr_id scr, u8 x, u8 y, FTC_SBit bitmap)
+void charLcd(scr_id scr, int x, int y, FTC_SBit bitmap)
 {
 	u8* srcLine = bitmap->buffer;
 	u8 width = bitmap->width;
@@ -158,7 +160,7 @@ void charLcd(scr_id scr, u8 x, u8 y, FTC_SBit bitmap)
 	swapRB(s0, s2, scr);
 	if(d90 == settings::layout || d180 == settings::layout) std::swap(s0, s2);
 
-	void (*putPix)(scr_id, u8, u8, Color) = &putPixel;
+	void (*putPix)(scr_id, int, int, Color) = &putPixel;
 	if(settings::gamma != 1) {
 		u8 summ = settings::fCol.R + settings::fCol.G + settings::fCol.B;
 		if(settings::gamma == 0) summ = 93 - summ;
@@ -205,7 +207,7 @@ void present()
 	gspWaitForVBlank();
 }
 
-void drawLine(u8 x1, u8 y1, u8 x2, u8 y2, u16 color, scr_id scr)
+void drawLine(int x1, int y1, int x2, int y2, u16 color, scr_id scr)
 {
 	toLayoutSpace(x1, y1);
 	toLayoutSpace(x2, y2);
@@ -216,7 +218,8 @@ void drawLine(u8 x1, u8 y1, u8 x2, u8 y2, u16 color, scr_id scr)
 	int signY = y1 < y2 ? 1 : -1;
 	int error = deltaX - deltaY;
 	while(true) {
-		bmp[scr][y1 * kBufferWidth + x1] = color;
+		if(x1 >= 0 && x1 < kBufferWidth && y1 >= 0 && y1 < kBufferHeight)
+			bmp[scr][y1 * kBufferWidth + x1] = color;
 		if(x1 == x2 && y1 == y2) break;
 		int error2 = error * 2;
 		if(error2 > -deltaY) {

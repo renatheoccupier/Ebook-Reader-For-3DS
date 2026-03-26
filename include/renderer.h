@@ -37,14 +37,16 @@ namespace renderer
 	void printClock(scr_id, bool forced = false);
 	void changeFont();
 	extern u16 *bmp[2];
-	inline void putPixel(scr_id scr, u8 x, u8 y, u16 color)
+	inline void putPixel(scr_id scr, int x, int y, u16 color)
 	{ 
 		toLayoutSpace(x, y);
+		if(x < 0 || x >= kBufferWidth || y < 0 || y >= kBufferHeight) return;
 		bmp[scr][y * kBufferWidth + x] = color;
 	}
-	inline void putPixel(scr_id scr, u8 x, u8 y, Color c24)
+	inline void putPixel(scr_id scr, int x, int y, Color c24)
 	{ 
 		toLayoutSpace(x, y);
+		if(x < 0 || x >= kBufferWidth || y < 0 || y >= kBufferHeight) return;
 		u16 p = bmp[scr][y * kBufferWidth + x];
 		u8 r = p & 0x1F;
 		u8 g = (p>>5) & 0x1F;

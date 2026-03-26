@@ -134,7 +134,7 @@ bool button :: touched()
 {
 	touchPosition t;
 	touchRead(&t);
-	u8 X1 = x1, Y1 = y1, X2 = x2, Y2 = y2;
+	int X1 = x1, Y1 = y1, X2 = x2, Y2 = y2;
 	toLayoutSpace(X1, Y1);
 	toLayoutSpace(X2, Y2);
 	if(	!(t.px >= MIN(X1, X2) && t.py >= MIN(Y1, Y2) &&
@@ -303,7 +303,7 @@ float progressbar :: touched()
 {
 	touchPosition t;
 	touchRead(&t);
-	u8 X1 = x1, Y1 = y1, X2 = x2, Y2 = y2;
+	int X1 = x1, Y1 = y1, X2 = x2, Y2 = y2;
 	toLayoutSpace(X1, Y1);
 	toLayoutSpace(X2, Y2);
 	if(	!(t.px >= MIN(X1, X2) && t.py >= MIN(Y1, Y2) &&
