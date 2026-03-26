@@ -286,16 +286,25 @@ void initFonts()
 	string file(appFontsPath() + settings::font);
 	if(!file_ok(file)) changeFont();
 
-	if(
-		FT_Init_FreeType(&ft_lib) ||
-		FT_Library_SetLcdFilter(ft_lib, FT_LCD_FILTER_DEFAULT) ||
-		FTC_Manager_New(ft_lib, 3, 0, 0, ftcFaceRequester, 0, &ftcManager) ||
-		FTC_SBitCache_New(ftcManager, &ftcSBitCache)
-	) bsod("renderer.initFonts:Freetype error.");
+	FT_Error ft_err = FT_Init_FreeType(&ft_lib);
+	if(ft_err) bsod("renderer.initFonts: FT_Init_FreeType failed.");
 
-	FTC_Manager_LookupFace(ftcManager, &settings::font, &face);
-	FTC_Manager_LookupFace(ftcManager, &settings::font_bold, &faceB);
-	FTC_Manager_LookupFace(ftcManager, &settings::font_italic, &faceI);
+	// Some FreeType builds omit LCD filtering support. Glyph rendering still works,
+	// so treat this as an optional enhancement instead of a hard startup failure.
+	FT_Library_SetLcdFilter(ft_lib, FT_LCD_FILTER_DEFAULT);
+
+	ft_err = FTC_Manager_New(ft_lib, 3, 0, 0, ftcFaceRequester, 0, &ftcManager);
+	if(ft_err) bsod("renderer.initFonts: FTC_Manager_New failed.");
+
+	ft_err = FTC_SBitCache_New(ftcManager, &ftcSBitCache);
+	if(ft_err) bsod("renderer.initFonts: FTC_SBitCache_New failed.");
+
+	if(FTC_Manager_LookupFace(ftcManager, &settings::font, &face))
+		bsod("renderer.initFonts: Can't load regular font.");
+	if(FTC_Manager_LookupFace(ftcManager, &settings::font_bold, &faceB))
+		bsod("renderer.initFonts: Can't load bold font.");
+	if(FTC_Manager_LookupFace(ftcManager, &settings::font_italic, &faceI))
+		bsod("renderer.initFonts: Can't load italic font.");
 }
 
 FT_Face* selectStyle(fontStyle style)

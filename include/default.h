@@ -4,6 +4,22 @@
 #include "ft2build.h"
 #include FT_FREETYPE_H
 
+#ifdef scanKeys
+#undef scanKeys
+#endif
+#ifdef keysDown
+#undef keysDown
+#endif
+#ifdef keysHeld
+#undef keysHeld
+#endif
+#ifdef keysUp
+#undef keysUp
+#endif
+#ifdef touchRead
+#undef touchRead
+#endif
+
 #include <string>
 #include <utility>
 #include <vector>
@@ -44,11 +60,12 @@ u32 keysHeld();
 u32 keysUp();
 void touchRead(touchPosition* touch);
 void swiWaitForVBlank();
-void consoleClear();
 int iprintf(const char* fmt, ...);
 string extention(string name);
 string noExt(string name);
 string noPath(string name);
+
+#define consoleClear() ((void)0)
 
 enum Layout {d0 = 0, d90, d180, d270};
 enum Encoding {eUtf8, e1251};

@@ -19,13 +19,13 @@ APP_AUTHOR      :=  rena
 APP_ICON        :=  data/icon.png
 
 ARCH        :=  -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft
-CFLAGS      :=  -g -Wall -O3 -ffast-math -ffunction-sections -fdata-sections $(ARCH) $(INCLUDE) -D_3DS
-CXXFLAGS    :=  $(CFLAGS) -fno-rtti -fno-exceptions
+CFLAGS      :=  -g -Wall -O3 -ffast-math -ffunction-sections -fdata-sections $(ARCH) $(INCLUDE) -D__3DS__
+CXXFLAGS    :=  $(CFLAGS) -std=gnu++11 -fno-rtti -fno-exceptions
 ASFLAGS     :=  -g $(ARCH)
 LDFLAGS     :=  -specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map),--gc-sections
 
-LIBS        :=  -lctru -lfreetype -lz -lm
-LIBDIRS     :=  $(CTRULIB) $(CURDIR)/lib
+LIBS        :=  -lctru -lfreetype -lpng -lbz2 -lz -lm
+LIBDIRS     :=  $(PORTLIBS) $(CTRULIB)
 
 ifneq ($(BUILD),$(notdir $(CURDIR)))
 
@@ -51,17 +51,17 @@ export OFILES     := $(CPPFILES:.cpp=.o) $(CFILES:.c=.o) $(SFILES:.s=.o)
 export INCLUDE    := $(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
                      $(foreach dir,$(LIBDIRS),-I$(dir)/include) \
                      -I$(CURDIR)/$(BUILD)
-export LIBPATHS   := $(foreach dir,$(LIBDIRS),-L$(dir)/lib) -L$(CURDIR)/lib
+export LIBPATHS   := $(foreach dir,$(LIBDIRS),-L$(dir)/lib)
+export _3DSXDEPS  := $(OUTPUT).smdh
+export _3DSXFLAGS += --smdh=$(CURDIR)/$(TARGET).smdh
 
 .PHONY: all clean $(BUILD)
 
-all: $(TARGET).3dsx $(TARGET).smdh
+all: $(BUILD)
+	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
 
 $(BUILD):
 	@[ -d $@ ] || mkdir -p $@
-	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
-
-$(TARGET).3dsx $(TARGET).smdh: $(BUILD)
 
 clean:
 	@echo clean ...
@@ -70,6 +70,8 @@ clean:
 else
 
 DEPENDS := $(OFILES:.o=.d)
+
+$(OUTPUT).3dsx : $(OUTPUT).elf $(_3DSXDEPS)
 
 $(OUTPUT).elf: $(OFILES)
 

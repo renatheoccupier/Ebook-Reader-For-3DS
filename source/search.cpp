@@ -1,6 +1,7 @@
 #include "book.h"
 #include "renderer.h"
 #include "button.h"
+#include "controls.h"
 
 #include <algorithm>
 #include <cstring>

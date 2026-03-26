@@ -1,6 +1,6 @@
 #include "controls.h"
 
-const int rKeys[4][4] =
+const u32 rKeys[4][4] =
 {
 	{	//d0
 		KEY_UP	 | KEY_X,	//up

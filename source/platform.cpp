@@ -116,10 +116,6 @@ void swiWaitForVBlank()
 	renderer::present();
 }
 
-void consoleClear()
-{
-}
-
 int iprintf(const char* fmt, ...)
 {
 	va_list args;

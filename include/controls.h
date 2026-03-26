@@ -3,13 +3,13 @@
 
 enum rDirec{rUp, rDown, rLeft, rRight};
 
-extern const int rKeys[4][4];
+extern const u32 rKeys[4][4];
 
-inline int rKey(rDirec d)
+inline u32 rKey(rDirec d)
 { return rKeys[settings::layout][d]; }
 
-inline int rDpadKey(rDirec d)
+inline u32 rDpadKey(rDirec d)
 { return rKey(d) & (KEY_UP | KEY_DOWN | KEY_LEFT | KEY_RIGHT); }
 
-inline int rFaceKey(rDirec d)
+inline u32 rFaceKey(rDirec d)
 { return rKey(d) & ~(KEY_UP | KEY_DOWN | KEY_LEFT | KEY_RIGHT); }
