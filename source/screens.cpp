@@ -61,8 +61,8 @@ void print_line(Encoding enc, const paragrath& parag, u16 linenum, u16 total_l, 
 	const bool wideTopScreen = (current_scr == top_scr && (settings::layout == d0 || settings::layout == d180));
 	const int text_width = wideTopScreen ? MIN(available_width, line_width() + 64) : available_width;
 	int text_left = side_margins;
-	if(wideTopScreen && settings::layout == d180)
-		text_left = screen_text_width(current_scr) - text_width - side_margins;
+	if(wideTopScreen)
+		text_left = side_margins + MAX(0, (available_width - text_width) / 2);
 	penX = text_left;
 	if (0 == linenum && pnormal == parag.type) penX += settings::first_indent;
 	int remained = text_width - parag.lines[linenum].width;

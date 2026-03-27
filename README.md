@@ -47,6 +47,8 @@ The expected output is:
 
 ## Notes
 
-- The UI is rendered into 320x240 software buffers for both screens, with the top screen centered inside the 3DS 400x240 display.
+- The renderer uses a 400x240 top-screen buffer and a 320x240 bottom-screen buffer, so the top screen can show wider reading pages and richer context panels.
+- Browser, home, bookmark, settings, and search screens now use the extra top-screen width for 3DS-specific dashboards instead of treating it like a centered DS screen.
+- Reader and cover-preview caches are a bit larger than the DS build to take advantage of 3DS memory headroom.
 - Search uses the 3DS software keyboard instead of the DS on-screen keyboard.
 - The DS project remains untouched in [`EbookReaderForDS/`](/home/rena/Work/NDS/EbookReaderForDS).

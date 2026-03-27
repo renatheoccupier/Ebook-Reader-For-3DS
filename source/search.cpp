@@ -44,6 +44,33 @@ string compactText(const string& text, size_t maxChars)
 	return text.substr(0, maxChars - 3) + "...";
 }
 
+void drawSearchTopOverlay(const string& bookTitle, const string& searchstr, bool doCI, const string& status)
+{
+	const int width = renderer::screenTextWidth(top_scr) - 1;
+	const int clockTop = screens::layoutY() - buttonFontSize * 3 / 2;
+	const int left = 10;
+	const int right = width - 10;
+	const int cardY1 = clockTop - 70;
+	const int cardY2 = clockTop - 34;
+	const int footerY1 = clockTop - 28;
+	const int footerY2 = clockTop - 4;
+
+	renderer::fillRect(0, 0, width, 32, Blend(28), top_scr);
+	renderer::rect(left, 4, right, 32, top_scr);
+	renderer::printStr(eUtf8, top_scr, left + 8, 18, compactText(bookTitle, 34), 0, 0, 14);
+	renderer::printStr(eUtf8, top_scr, right - renderer::strWidth(eUtf8, "Search", 0, 0, 10) - 8, 18, "Search", 0, 0, 10);
+
+	renderer::fillRect(left, cardY1, right, cardY2, Blend(18), top_scr);
+	renderer::rect(left, cardY1, right, cardY2, top_scr);
+	renderer::printStr(eUtf8, top_scr, left + 8, cardY1 + 16, compactText(searchstr.empty() ? string("No query yet") : searchstr, 46), 0, 0, 11);
+	renderer::printStr(eUtf8, top_scr, left + 8, cardY1 + 30, compactText((doCI ? string("Case-insensitive. ") : string("Case-sensitive. ")) + status, 54), 0, 0, 10);
+
+	renderer::fillRect(left, footerY1, right, footerY2, Blend(28), top_scr);
+	renderer::rect(left, footerY1, right, footerY2, top_scr);
+	renderer::printStr(eUtf8, top_scr, left + 8, footerY1 + 14, "A/Right next  B/Left previous  Touch buttons to edit", 0, 0, 10);
+	renderer::printClock(top_scr, true);
+}
+
 bool promptSearchText(string& searchstr)
 {
 	SwkbdState swkbd;
@@ -61,9 +88,10 @@ bool promptSearchText(string& searchstr)
 	return !searchstr.empty();
 }
 
-void drawSearchPanel(const string& searchstr, bool doCI, const string& status, button& prev, button& next, button& toggle, button& edit, button& close)
+void drawSearchPanel(const string& bookTitle, const string& searchstr, bool doCI, const string& status, button& prev, button& next, button& toggle, button& edit, button& close)
 {
 	renderer::setTopScreenMirror(false);
+	drawSearchTopOverlay(bookTitle, searchstr, doCI, status);
 	renderer::clearScreens(settings::bgCol, bottom_scr);
 	renderer::printStr(eUtf8, bottom_scr, 10, 20, "Search", 0, 0, 18);
 	renderer::printStr(eUtf8, bottom_scr, 10, 42, compactText(searchstr, 38), 0, 0, 12);
@@ -102,10 +130,11 @@ void Book::search()
 	button edit("Edit text", 10, 150, 152, 174, 12);
 	button close("Close", 168, 150, 310, 174, 12);
 	string status("A/Right = next, B/Left = previous");
+	const string bookTitle = noPath(bookFile);
 	const u32 total_parag = total_paragraths();
 
 	while(pumpPowerManagement()) {
-		drawSearchPanel(searchstr, doCI, status, prev, next, toggle, edit, close);
+		drawSearchPanel(bookTitle, searchstr, doCI, status, prev, next, toggle, edit, close);
 		swiWaitForVBlank();
 		scanKeys();
 

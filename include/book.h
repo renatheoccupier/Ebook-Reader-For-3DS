@@ -65,7 +65,7 @@ public:
 		bookmarkCursor = 0;
 		marksDirty = false;
 		marksSaveFrames = 0;
-		paragraphCache.resize(12);
+		paragraphCache.resize(24);
 	}
 protected:
 	string bookFile, encname;
@@ -75,6 +75,10 @@ protected:
 		bool tocReady;
 		virtual void parse() = 0;
 		virtual void parag_str (int parag_num) = 0;
+		virtual parType paragraphType(u32 parag_num) {
+			if(parag_num == prev_par_num) return parag.type;
+			return pnormal; 
+		}
 		virtual void refreshCachedParagraph(paragrath&) {}
 		virtual bool loadTocEntries() { return false; }
 		void fetch_paragrath (int parag_num) {

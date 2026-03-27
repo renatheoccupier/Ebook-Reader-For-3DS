@@ -32,10 +32,10 @@ const int kPreviewTitleLines = 3;
 const int kPreviewTitleGap = 2;
 const int kPreviewImageGap = 8;
 const int kPromptFont = 12;
-const int kPreviewWarmupFrames = 12;
+const int kPreviewWarmupFrames = 8;
 const u32 kPreviewMaxEntryBytes = 768u * 1024u;
-const u32 kPreviewCacheEntries = 8u;
-const u32 kPreviewPathCacheEntries = 12u;
+const u32 kPreviewCacheEntries = 12u;
+const u32 kPreviewPathCacheEntries = 16u;
 const bool kPreviewCoversEnabled = true;
 
 string gLastBrowserPath;
@@ -839,11 +839,10 @@ void file_browser :: showPreview(const string& file_name)
 	previewWidth = previewHeight = 0;
 	previewHasImage = false;
 	if(kPreviewCoversEnabled) {
-		const int clockTop = statusTop();
 		const int frameX1 = 12;
-		const int frameX2 = 120;
-		const int frameY1 = 86;
-		const int frameY2 = clockTop - 10;
+		const int frameX2 = 144;
+		const int frameY1 = 82;
+		const int frameY2 = 180;
 		const int innerWidth = frameX2 - frameX1 - 10;
 		const int innerHeight = frameY2 - frameY1 - 10;
 		if(innerWidth > 24 && innerHeight > 24 &&
@@ -929,35 +928,39 @@ void file_browser :: drawPreview()
 	const int clockTop = statusTop();
 	const int leftPad = 10;
 	const int rightPad = width - 10;
+	const int footerY1 = clockTop - 28;
+	const int footerY2 = clockTop - 4;
+	const int previewX1 = 12;
+	const int previewX2 = 144;
+	const int previewY1 = 82;
+	const int previewY2 = footerY1 - 8;
+	const int detailX1 = 156;
+	const int detailX2 = width - 12;
+	const int detailY1 = previewY1;
+	const int detailY2 = 136;
+	const int metaY1 = 144;
+	const int metaY2 = previewY2;
 
-	renderer::fillRect(0, 0, width, 28, Blend(32), top_scr);
-	renderer::printStr(eUtf8, top_scr, 10, 18, "Library", 0, 0, 18);
+	renderer::fillRect(0, 0, width, 30, Blend(32), top_scr);
+	renderer::printStr(eUtf8, top_scr, 10, 20, "Library", 0, 0, 18);
 
 	char countBuf[24];
 	sprintf(countBuf, "%d/%lu", flist.empty() ? 0 : cursor + 1, (unsigned long)flist.size());
 	const int countWidth = renderer::strWidth(eUtf8, countBuf, 0, 0, 11);
-	renderer::printStr(eUtf8, top_scr, width - countWidth - 10, 16, countBuf, 0, 0, 11);
+	renderer::printStr(eUtf8, top_scr, width - countWidth - 10, 18, countBuf, 0, 0, 11);
 
-	renderer::rect(leftPad, 36, rightPad, 74, top_scr);
-	drawWrappedText(top_scr, leftPad + 6, 44, rightPad - leftPad - 12, path, 10, 2);
-
-	const int previewX1 = 12;
-	const int previewX2 = 120;
-	const int previewY1 = 86;
-	const int previewY2 = clockTop - 10;
-	const int detailX1 = 132;
-	const int detailX2 = width - 12;
-	const int detailY1 = previewY1;
-	const int detailY2 = previewY2;
+	renderer::rect(leftPad, 38, rightPad, 72, top_scr);
+	drawWrappedText(top_scr, leftPad + 6, 46, rightPad - leftPad - 12, path, 10, 2);
 
 	renderer::fillRect(previewX1, previewY1, previewX2, previewY2, Blend(20), top_scr);
 	renderer::rect(previewX1, previewY1, previewX2, previewY2, top_scr);
 	renderer::rect(detailX1, detailY1, detailX2, detailY2, top_scr);
+	renderer::rect(detailX1, metaY1, detailX2, metaY2, top_scr);
 
 	if(flist.empty()) {
 		drawPreviewIcon(previewX1 + 4, previewY1 + 4, previewX2 - 4, previewY2 - 4);
 		drawWrappedText(top_scr, detailX1 + 8, detailY1 + 10, detailX2 - detailX1 - 16, "No EPUB files in this folder", 12, 3);
-		drawWrappedText(top_scr, detailX1 + 8, detailY1 + 68, detailX2 - detailX1 - 16, "Use Left to go back or copy books into sdmc:/books/", 10, 4);
+		drawWrappedText(top_scr, detailX1 + 8, metaY1 + 10, detailX2 - detailX1 - 16, "Use Left to go back or copy books into sdmc:/books/ or the app books folder.", 10, 3);
 		renderer::printClock(top_scr, true);
 		return;
 	}
@@ -967,14 +970,14 @@ void file_browser :: drawPreview()
 	const string kind = (current.first == folder) ? "Folder" : "EPUB file";
 	const string sizeLabel = (current.first == file) ? fileSizeLabel(selectedPath) : string();
 
-	drawWrappedText(top_scr, detailX1 + 8, detailY1 + 10, detailX2 - detailX1 - 16, current.second, 12, 4);
-	renderer::printStr(eUtf8, top_scr, detailX1 + 8, detailY1 + 66, kind, 0, 0, 10);
+	drawWrappedText(top_scr, detailX1 + 8, detailY1 + 10, detailX2 - detailX1 - 16, current.second, 12, 3);
+	renderer::printStr(eUtf8, top_scr, detailX1 + 8, detailY1 + 58, kind, 0, 0, 10);
 	if(!sizeLabel.empty())
-		renderer::printStr(eUtf8, top_scr, detailX1 + 8, detailY1 + 82, sizeLabel, 0, 0, 10);
+		renderer::printStr(eUtf8, top_scr, detailX1 + 72, detailY1 + 58, sizeLabel, 0, 0, 10);
 
 	if(current.first == folder) {
 		drawFolderIcon(previewX1 + 4, previewY1 + 8, previewX2 - 4, previewY2 - 8);
-		drawWrappedText(top_scr, detailX1 + 8, detailY1 + 104, detailX2 - detailX1 - 16, "Open to browse inside this directory.", 10, 3);
+		drawWrappedText(top_scr, detailX1 + 8, metaY1 + 10, detailX2 - detailX1 - 16, "Open to browse inside this directory. Left goes to the parent folder.", 10, 3);
 	}
 	else {
 		if(previewHasImage && !previewPixels.empty()) {
@@ -987,18 +990,18 @@ void file_browser :: drawPreview()
 			const int drawX = innerX1 + (boxW - previewWidth) / 2;
 			const int drawY = innerY1 + (boxH - previewHeight) / 2;
 			renderer::drawImageSlice(top_scr, drawX, drawY, previewPixels, previewWidth, previewHeight, 0, previewHeight);
-			renderer::printStr(eUtf8, top_scr, detailX1 + 8, detailY1 + 104, "Embedded cover ready", 0, 0, 10);
+			drawWrappedText(top_scr, detailX1 + 8, metaY1 + 10, detailX2 - detailX1 - 16, "Embedded cover ready. Press A or Right to open this EPUB.", 10, 3);
 		}
-			else {
-				drawPreviewIcon(previewX1 + 4, previewY1 + 4, previewX2 - 4, previewY2 - 4);
-				const string status = previewPending ? "Loading cover..." : "No embedded JPG cover found";
-				drawWrappedText(top_scr, detailX1 + 8, detailY1 + 104, detailX2 - detailX1 - 16, status, 10, 3);
-			}
+		else {
+			drawPreviewIcon(previewX1 + 4, previewY1 + 4, previewX2 - 4, previewY2 - 4);
+			const string status = previewPending ? "Loading cover..." : "No embedded JPG cover found";
+			drawWrappedText(top_scr, detailX1 + 8, metaY1 + 10, detailX2 - detailX1 - 16, status, 10, 3);
 		}
+	}
 
-	renderer::fillRect(leftPad, clockTop - 26, rightPad, clockTop - 4, Blend(28), top_scr);
-	renderer::rect(leftPad, clockTop - 26, rightPad, clockTop - 4, top_scr);
-	drawWrappedText(top_scr, leftPad + 8, clockTop - 22, rightPad - leftPad - 16, "Up/Down: move  Right/A: open  Left/B: back", 10, 1);
+	renderer::fillRect(leftPad, footerY1, rightPad, footerY2, Blend(28), top_scr);
+	renderer::rect(leftPad, footerY1, rightPad, footerY2, top_scr);
+	drawWrappedText(top_scr, leftPad + 8, footerY1 + 4, rightPad - leftPad - 16, "Up/Down move  A/Right open  B/Left back", 10, 1);
 	renderer::printClock(top_scr, true);
 }
 

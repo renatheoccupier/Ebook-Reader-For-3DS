@@ -8,6 +8,10 @@
 #include <dirent.h>
 #include <fstream>
 
+bool file_ok(const string& file_name);
+static bool book_ok(const string& file_name);
+static Layout gReadingLayout = d0;
+
 namespace
 {
 
@@ -90,36 +94,73 @@ string compactValue(const string& text, int width, u32 fontSize)
 	return ellipsizedSlice(text, 0, width, fontSize);
 }
 
+string themeLabel()
+{
+	if(settings::lowLightMode()) return string("Low-light");
+	return settings::nightMode() ? string("Night") : string("Paper");
+}
+
+string screenModeLabel()
+{
+	switch(settings::scrConf) {
+		case scTop: return string("Top screen");
+		case scBottom: return string("Bottom screen");
+		default: return string("Dual screen");
+	}
+}
+
+string layoutLabel()
+{
+	switch(gReadingLayout) {
+		case d90: return string("Rotated 90");
+		case d180: return string("Rotated 180");
+		case d270: return string("Rotated 270");
+		default: return string("Standard");
+	}
+}
+
 void drawMenuTopScreen()
 {
 	const int width = renderer::screenTextWidth(top_scr) - 1;
 	const int clockTop = statusTop();
-
-	renderer::clearScreens(settings::bgCol, top_scr);
-	renderer::fillRect(0, 0, width, 44, Blend(32), top_scr);
-	renderer::printStr(eUtf8, top_scr, 12, 22, kMenuTitle, 0, 0, 24);
-	renderer::printStr(eUtf8, top_scr, 14, 38, kMenuSubtitle, 0, 0, 11);
-
-	const int cardGap = 8;
 	const int left = 12;
 	const int right = width - 12;
-	const int topRowY1 = 54;
-	const int topRowY2 = 128;
-	const int mid = (left + right) / 2;
+	const int gap = 10;
+	const int heroX2 = 218;
+	const int infoX1 = heroX2 + gap;
+	const int infoX2 = right;
+	const bool canResume = !settings::recent_book.empty() && book_ok(settings::recent_book);
 
-	renderer::rect(left, topRowY1, mid - cardGap / 2, topRowY2, top_scr);
-	renderer::rect(mid + cardGap / 2, topRowY1, right, topRowY2, top_scr);
-	renderer::rect(left, 138, right, clockTop - 8, top_scr);
+	renderer::clearScreens(settings::bgCol, top_scr);
+	renderer::fillRect(0, 0, width, 50, Blend(28), top_scr);
+	renderer::fillRect(0, 50, width, 52, Blend(72), top_scr);
+	renderer::printStr(eUtf8, top_scr, 16, 24, kMenuTitle, 0, 0, 25);
+	renderer::printStr(eUtf8, top_scr, 18, 42, kMenuSubtitle, 0, 0, 11);
 
-	drawCardTitle(left + 8, topRowY1 + 14, "Recent");
-	drawCardValue(left + 8, topRowY1 + 34, mid - left - 20, settings::recent_book.empty() ? "Open Files to pick a book." : noPath(settings::recent_book), 12, 3);
+	renderer::fillRect(left, 64, heroX2, 150, Blend(18), top_scr);
+	renderer::rect(left, 64, heroX2, 150, top_scr);
+	drawCardTitle(left + 10, 80, canResume ? "Recent Book" : "Start Reading");
+	drawCardValue(left + 10, 102, heroX2 - left - 20, canResume
+		? noPath(settings::recent_book)
+		: string("Open Files to browse EPUB books from sdmc:/books/ or the app folder."), 13, 3);
+	renderer::printStr(eUtf8, top_scr, left + 10, 138, canResume ? "Tap Resume below to reopen it fast." : "The reader keeps your last book and bookmarks.", 0, 0, 10);
 
-	drawCardTitle(mid + cardGap / 2 + 8, topRowY1 + 14, "Library");
-	renderer::printStr(eUtf8, top_scr, mid + cardGap / 2 + 8, topRowY1 + 38, compactValue("sdmc:/books/", right - mid - cardGap / 2 - 20, 10), 0, 0, 10);
-	renderer::printStr(eUtf8, top_scr, mid + cardGap / 2 + 8, topRowY1 + 52, compactValue(appBooksPath(), right - mid - cardGap / 2 - 20, 10), 0, 0, 10);
+	renderer::rect(infoX1, 64, infoX2, 106, top_scr);
+	drawCardTitle(infoX1 + 8, 80, "Library");
+	renderer::printStr(eUtf8, top_scr, infoX1 + 8, 98, compactValue("sdmc:/books/", infoX2 - infoX1 - 16, 10), 0, 0, 10);
 
-	drawCardTitle(left + 8, 152, "Controls");
-	drawCardValue(left + 8, 172, right - left - 20, "Touch a tile or use A/Right to open files. Start exits the app. Reading uses both screens.", 10, 4);
+	renderer::rect(infoX1, 114, infoX2, 150, top_scr);
+	drawCardTitle(infoX1 + 8, 130, "Reader");
+	renderer::printStr(eUtf8, top_scr, infoX1 + 8, 148, compactValue(screenModeLabel() + " | " + themeLabel() + " | " + layoutLabel(), infoX2 - infoX1 - 16, 10), 0, 0, 10);
+
+	renderer::rect(left, 160, right, clockTop - 8, top_scr);
+	drawCardTitle(left + 10, 176, "3DS Layout");
+	drawCardValue(left + 10, 196, right - left - 20,
+		"Bottom screen stays touch-first for menus. The wider top screen is used for library context, richer previews, and wider reading pages.",
+		10, 3);
+	renderer::printStr(eUtf8, top_scr, left + 10, clockTop - 18,
+		"A / Right opens files. Start exits. Resume appears when a recent EPUB is available.",
+		0, 0, 10);
 	renderer::printClock(top_scr, true);
 }
 
@@ -136,8 +177,6 @@ static bool book_ok(const string& file_name)
 }
 
 static grid menu(0);
-static Layout gReadingLayout = d0;
-
 void drawMenu()
 {
 	renderer::setTopScreenMirror(false);

@@ -105,18 +105,19 @@ void blitScreen(scr_id scr, gfxScreen_t screen)
 	const int height = 240;
 	const int width = (screen == GFX_TOP) ? 400 : 320;
 	const int copyWidth = MIN(width, screenPixelWidth(scr));
-	const int offsetX = 0;
 	u8* fb = gfxGetFramebuffer(screen, GFX_LEFT, NULL, NULL);
 	if(fb == NULL) return;
 
-	for(int y = 0; y < kBufferHeight; ++y) {
-		for(int srcX = 0; srcX < copyWidth; ++srcX) {
-			const int dstX = offsetX + srcX;
-			const u16 pixel = bmp[scr][y * kBufferWidth + srcX];
-			const int pos = (dstX * height + (height - 1 - y)) * 3;
-			fb[pos + 0] = expand5((pixel >> 10) & 0x1F);
-			fb[pos + 1] = expand5((pixel >> 5) & 0x1F);
-			fb[pos + 2] = expand5(pixel & 0x1F);
+	for(int srcX = 0; srcX < copyWidth; ++srcX) {
+		u8* dst = fb + srcX * height * 3;
+		const u16* src = &bmp[scr][(kBufferHeight - 1) * kBufferWidth + srcX];
+		for(int y = kBufferHeight - 1; y >= 0; --y) {
+			const u16 pixel = *src;
+			dst[0] = expand5((pixel >> 10) & 0x1F);
+			dst[1] = expand5((pixel >> 5) & 0x1F);
+			dst[2] = expand5(pixel & 0x1F);
+			dst += 3;
+			src -= kBufferWidth;
 		}
 	}
 }
@@ -289,8 +290,6 @@ void present()
 		gspWaitForVBlank();
 		return;
 	}
-	fillFramebuffer(GFX_TOP, settings::bgCol);
-	fillFramebuffer(GFX_BOTTOM, settings::bgCol);
 	blitScreen(gMirrorTopFromBottom ? bottom_scr : top_scr, GFX_TOP);
 	blitScreen(bottom_scr, GFX_BOTTOM);
 	gfxFlushBuffers();
@@ -304,6 +303,28 @@ void drawLine(int x1, int y1, int x2, int y2, u16 color, scr_id scr)
 	mapToScreen(scr, x1, y1);
 	mapToScreen(scr, x2, y2);
 	markDirty();
+
+	if(y1 == y2) { // Horizontal
+		if(x1 > x2) std::swap(x1, x2);
+		const int width = screenPixelWidth(scr);
+		if(y1 < 0 || y1 >= kBufferHeight) return;
+		x1 = MAX(0, x1);
+		x2 = MIN(width - 1, x2);
+		if(x1 <= x2)
+			std::fill_n(&bmp[scr][y1 * kBufferWidth + x1], x2 - x1 + 1, color);
+		return;
+	}
+	if(x1 == x2) { // Vertical
+		if(y1 > y2) std::swap(y1, y2);
+		const int width = screenPixelWidth(scr);
+		if(x1 < 0 || x1 >= width) return;
+		y1 = MAX(0, y1);
+		y2 = MIN(kBufferHeight - 1, y2);
+		u16* p = &bmp[scr][y1 * kBufferWidth + x1];
+		for(int i = y1; i <= y2; ++i, p += kBufferWidth)
+			*p = color;
+		return;
+	}
 
 	int deltaX = abs(x2 - x1);
 	int deltaY = abs(y2 - y1);
@@ -508,18 +529,14 @@ void rect(u16 x1, u16 y1, u16 x2, u16 y2, scr_id scr)
 
 void fillRect(u16 x1, u16 y1, u16 x2, u16 y2, u16 col, scr_id scr)
 {
-	drawLine(x1 + 2, y1, x2 - 2, y1, col, scr);
-	drawLine(x1 + 1, y1 + 1, x2 - 1, y1 + 1, col, scr);
-	for(u32 i = y1 + 2u; i <= y2 - 2u; ++i)
+	if(y1 > y2) std::swap(y1, y2);
+	for(u16 i = y1; i <= y2; ++i)
 		drawLine(x1, i, x2, i, col, scr);
-	drawLine(x1 + 1, y2 - 1, x2 - 1, y2 - 1, col, scr);
-	drawLine(x1 + 2, y1, x2 - 2, y1, col, scr);
 }
 
 void vLine(u16 x, u16 y1, u16 y2, u16 col)
 {
-	for(u32 i = y1; i <= y2; ++i)
-		putPixel(bottom_scr, x, i, col);
+	drawLine(x, y1, x, y2, col, bottom_scr);
 }
 
 void drawImageSlice(scr_id scr, int x, int y, const vector<u16>& pixels, u16 width, u16 height, u16 srcY, u16 sliceHeight)

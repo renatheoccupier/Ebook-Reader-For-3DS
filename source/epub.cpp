@@ -80,42 +80,6 @@ bool loadFromZip(unzFile& zip, const string& file, char *&buf, u32& size, bool f
 	return true;
 }
 
-bool loadOwnedXmlFromZip(unzFile& zip, const string& file, pugi::xml_document& doc, bool fatal = true, const zip_index_map* index = NULL)
-{
-	unz_file_info info;
-	if(!locateZipEntry(zip, file, index)) {
-		if(fatal) bsod("epub.loadOwnedXmlFromZip:Can't locate file.");
-		return false;
-	}
-	if(unzOpenCurrentFile(zip) != UNZ_OK) {
-		if(fatal) bsod("epub.loadOwnedXmlFromZip:Can't open archive entry.");
-		return false;
-	}
-	unzGetCurrentFileInfo(zip, &info, NULL, 0, NULL, 0, NULL, 0);
-	const u32 size = info.uncompressed_size;
-	char* buf = static_cast<char*>(malloc(size + 1u));
-	if(buf == NULL) {
-		unzCloseCurrentFile(zip);
-		if(fatal) bsod("epub.loadOwnedXmlFromZip:Out of memory.");
-		return false;
-	}
-	const int read = unzReadCurrentFile(zip, buf, size);
-	unzCloseCurrentFile(zip);
-	if(read < 0 || (u32)read != size) {
-		free(buf);
-		if(fatal) bsod("epub.loadOwnedXmlFromZip:Error while reading entry.");
-		return false;
-	}
-	buf[size] = '\0';
-	const pugi::xml_parse_result result = doc.load_buffer_inplace_own(buf, size);
-	if(result.status != pugi::status_ok) {
-		doc.reset();
-		if(fatal) bsod("epub.loadOwnedXmlFromZip:Can't parse xml.");
-		return false;
-	}
-	return true;
-}
-
 bool zipEntrySize(unzFile& zip, const string& file, u32& size, const zip_index_map* index = NULL)
 {
 	size = 0;
@@ -500,7 +464,6 @@ bool decodeJpeg(const char* data, u32 size, u16 max_width, u16 max_height, vecto
 
 epub_book :: ~epub_book()
 {
-	clearChapterDocuments();
 	closeArchive();
 }
 
@@ -517,13 +480,6 @@ void epub_book :: closeArchive()
 		unzClose(archive);
 		archive = NULL;
 	}
-}
-
-void epub_book :: clearChapterDocuments()
-{
-	for(u32 i = 0; i < chapterDocuments.size(); ++i)
-		delete chapterDocuments[i];
-	chapterDocuments.clear();
 }
 
 void epub_book :: clearImageCache()
@@ -598,7 +554,7 @@ void epub_book :: parse()
 	anchor_targets.clear();
 	zip_index.clear();
 	clearImageCache();
-	clearChapterDocuments();
+	document.reset();
 	closeArchive();
 	tocNavFile.clear();
 	tocNcxFile.clear();
@@ -655,33 +611,38 @@ void epub_book :: parse()
 
 	renderer::clearScreens(0);
 	push_it = true;
-	chapterDocuments.reserve(chapter_files.size());
 	for(u32 i = 0; i < chapter_files.size(); ++i) {
 		if(i == 0 || i + 1u == chapter_files.size() || 0 == (i % kOpenProgressUpdateStep)) {
 			consoleClear();
-			iprintf("loading %lu/%d\n", i + 1, chapter_files.size());
+			iprintf("loading %lu/%d\n", i + 1, (int)chapter_files.size());
 		}
-		pugi::xml_document* chapter_doc = new (std::nothrow) pugi::xml_document();
-		if(chapter_doc == NULL) bsod("epub_book::parse:Out of memory.");
-		if(!loadOwnedXmlFromZip(archive, chapter_files[i], *chapter_doc, true, &zip_index)) {
-			delete chapter_doc;
-			continue;
-		}
+		
+		if(!loadFromZip(archive, chapter_files[i], buf, size, true, &zip_index)) continue;
+		pugi::xml_document chapter_doc;
+		result = chapter_doc.load_buffer_inplace(buf, size);
+		if(result.status == pugi::status_out_of_memory) bsod("epub_book::parse:Out of memory.");
+		
+		if(result.status == pugi::status_ok) {
+			pugi::xml_node chapter = document.append_child("chapter");
+			const string chapter_path = chapter_files[i];
+			const string chapter_base = dirName(chapter_path);
+			if(chapter_targets.find(chapter_path) == chapter_targets.end())
+				chapter_targets[chapter_path] = par_index.size();
 
-		chapterDocuments.push_back(chapter_doc);
-		const string chapter_path = chapter_files[i];
-		const string chapter_base = dirName(chapter_path);
-		if(chapter_targets.find(chapter_path) == chapter_targets.end())
-			chapter_targets[chapter_path] = par_index.size();
-
-		const pugi::xml_node body = findNodeByName(*chapter_doc, "body");
-		if(body) {
-			for(pugi::xml_node child = body.first_child(); child; child = child.next_sibling())
-				parse_doc(child, chapter_path, chapter_base);
+			pugi::xml_node body = findNodeByName(chapter_doc, "body");
+			if(body) {
+				for(pugi::xml_node child = body.first_child(); child; child = child.next_sibling()) {
+					pugi::xml_node new_child = chapter.append_copy(child);
+					parse_doc(new_child, chapter_path, chapter_base);
+				}
+			}
+			else if(chapter_doc.document_element()) {
+				pugi::xml_node new_child = chapter.append_copy(chapter_doc.document_element());
+				parse_doc(new_child, chapter_path, chapter_base);
+			}
 		}
-		else if(chapter_doc->document_element()) {
-			parse_doc(chapter_doc->document_element(), chapter_path, chapter_base);
-		}
+		delete[] buf;
+		buf = NULL;
 	}
 	consoleClear();
 }
@@ -774,8 +735,8 @@ void epub_book :: parag_str (int parag_num)
 {
 	parag = paragrath();
 	const epub_entry& entry = par_index[parag_num];
+	parag.type = entry.type;
 	if(entry.isImage()) {
-		parag.type = pimage;
 		if(!load_image(entry.image)) {
 			parag.type = pnormal;
 			parag.str = "[Image: " + noPath(entry.image) + "]";
@@ -808,6 +769,7 @@ int epub_book :: parse_doc(const pugi::xml_node& node, const string& chapter_pat
 		}
 
 		const string tag = frame.node.name();
+		const bool isTitle = !tag.empty() && string::npos != title_tags.find(' ' + tag + ' ');
 		const char* attrs[2] = {"id", "name"};
 		for(u32 i = 0; i < 2; ++i) {
 			const char* value = frame.node.attribute(attrs[i]).value();
@@ -834,10 +796,10 @@ int epub_book :: parse_doc(const pugi::xml_node& node, const string& chapter_pat
 
 		if(newl) {
 			if(br) {
-				if(frame.node.next_sibling()) appendTextEntry(frame.node.next_sibling());
+				if(frame.node.next_sibling()) appendTextEntry(frame.node.next_sibling(), isTitle);
 				else appendEmptyEntry();
 			}
-			else if(push_it) appendTextEntry(frame.node);
+			else if(push_it) appendTextEntry(frame.node, isTitle);
 			push_it = false;
 		}
 		if(ret) continue;
@@ -849,9 +811,9 @@ int epub_book :: parse_doc(const pugi::xml_node& node, const string& chapter_pat
 	return 0;
 }
 
-void epub_book :: appendTextEntry(const pugi::xml_node& node)
+void epub_book :: appendTextEntry(const pugi::xml_node& node, bool isTitle)
 {
-	if(node) par_index.push_back(epub_entry(node));
+	if(node) par_index.push_back(epub_entry(node, isTitle ? ptitle : pnormal));
 	else appendEmptyEntry();
 }
 
