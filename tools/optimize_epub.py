@@ -31,6 +31,7 @@ DS_JPEG_QUALITY = 60
 DS_PNG_COLORS = 64
 THREE_DS_MAX_CHAPTER_BYTES = 6 * 1024 * 1024
 THREE_DS_MAX_TOTAL_CHAPTER_BYTES = 24 * 1024 * 1024
+THREE_DS_RECOMMENDED_TOTAL_CHAPTER_BYTES = 10 * 1024 * 1024
 CONTAINER_NS = "urn:oasis:names:tc:opendocument:xmlns:container"
 OPF_NS = "http://www.idpf.org/2007/opf"
 SPINE_MEDIA_TYPES = {"application/xhtml+xml", "text/html"}
@@ -367,6 +368,12 @@ def analyze_3ds_compatibility(epub_path):
         f"{format_size(total_size)} total spine text, largest chapter {format_size(largest_size)} "
         f"({largest_path})"
     ]
+    if total_size > THREE_DS_RECOMMENDED_TOTAL_CHAPTER_BYTES:
+        logs.append(
+            "note: this EPUB is still text-heavy for 3DS loading even if the final .epub file is small. "
+            f"Large spine XHTML/HTML totals above {format_size(THREE_DS_RECOMMENDED_TOTAL_CHAPTER_BYTES)} "
+            "can still open slowly; split the book if startup remains sluggish."
+        )
     if largest_size > THREE_DS_MAX_CHAPTER_BYTES:
         logs.append(
             "warning: largest chapter exceeds the 3DS safe limit "

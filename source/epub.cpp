@@ -557,7 +557,6 @@ void epub_book :: parse()
 	anchor_targets.clear();
 	zip_index.clear();
 	clearImageCache();
-	document.reset();
 	closeArchive();
 	tocNavFile.clear();
 	tocNcxFile.clear();
@@ -637,7 +636,6 @@ void epub_book :: parse()
 		if(result.status == pugi::status_out_of_memory) bsod("epub_book::parse:Out of memory.");
 		
 		if(result.status == pugi::status_ok) {
-			pugi::xml_node chapter = document.append_child("chapter");
 			const string chapter_path = chapter_files[i];
 			const string chapter_base = dirName(chapter_path);
 			if(chapter_targets.find(chapter_path) == chapter_targets.end())
@@ -645,14 +643,11 @@ void epub_book :: parse()
 
 			pugi::xml_node body = findNodeByName(chapter_doc, "body");
 			if(body) {
-				for(pugi::xml_node child = body.first_child(); child; child = child.next_sibling()) {
-					pugi::xml_node new_child = chapter.append_copy(child);
-					parse_doc(new_child, chapter_path, chapter_base);
-				}
+				for(pugi::xml_node child = body.first_child(); child; child = child.next_sibling())
+					parse_doc(child, chapter_path, chapter_base);
 			}
 			else if(chapter_doc.document_element()) {
-				pugi::xml_node new_child = chapter.append_copy(chapter_doc.document_element());
-				parse_doc(new_child, chapter_path, chapter_base);
+				parse_doc(chapter_doc.document_element(), chapter_path, chapter_base);
 			}
 		}
 		delete[] buf;
@@ -758,7 +753,8 @@ void epub_book :: parag_str (int parag_num)
 		}
 		return;
 	}
-	if(entry.node) extract_par(entry.node, parag);
+	parag.str = entry.text;
+	parag.marks = entry.marks;
 }
 
 int epub_book :: parse_doc(const pugi::xml_node& node, const string& chapter_path, const string& chapter_base)
@@ -828,8 +824,15 @@ int epub_book :: parse_doc(const pugi::xml_node& node, const string& chapter_pat
 
 void epub_book :: appendTextEntry(const pugi::xml_node& node, bool isTitle)
 {
-	if(node) par_index.push_back(epub_entry(node, isTitle ? ptitle : pnormal));
-	else appendEmptyEntry();
+	if(!node) {
+		appendEmptyEntry();
+		return;
+	}
+
+	paragrath paragraph;
+	paragraph.type = isTitle ? ptitle : pnormal;
+	extract_par(node, paragraph);
+	par_index.push_back(epub_entry(paragraph.str, paragraph.type, paragraph.marks));
 }
 
 void epub_book :: appendEmptyEntry()

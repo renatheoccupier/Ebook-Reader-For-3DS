@@ -853,6 +853,7 @@ void Book :: bookmarkMenu()
 	drawBookmarkMenu();
 	while(pumpPowerManagement()) {
 		swiWaitForVBlank();
+		renderer::printClock(bottom_scr);
 		scanKeys();
 		int down = keysDown();
 		if(down & KEY_TOUCH) {
@@ -1088,6 +1089,7 @@ void Book :: drawBookmarkMenu()
 	prbar.draw (float(current_page.parag_num) / total_paragraths());
 	for (std::set<bookmark>::iterator it = bookmarks.begin(); it != bookmarks.end(); ++it)
 		prbar.mark(float(it->parag_num) / total_paragraths());
+	renderer::printClock(bottom_scr, true);
 	setBacklightMode(blOverlay);
 }
 
