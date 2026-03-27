@@ -165,9 +165,11 @@ grid :: grid(u32 it) : iter(it)
 		more = button("", y1, dimX - x2, y2, dimX - x1);
 	}
 
-	
+	const bool portrait = layoutY() > layoutX();
 	int offx = (layoutX() - dimY)/2 + (screens::dimX % third)/2;
-	int offy = (layoutY() - dimY)/2 + (screens::dimX % third)/2;
+	int offy = portrait
+		? MAX(3, int(layoutY()) - int(dimY) - 8)
+		: (layoutY() - dimY)/2 + (screens::dimX % third)/2;
 	for(u32 i = 0; i < 9; i++)
 		blanks.push_back(button("", offx + third*(i%3), offy + i/3*third, offx + third*(i%3+1), offy + (i/3+1)*third, 12));
 }

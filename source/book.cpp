@@ -55,7 +55,7 @@ u32 bookmarkMenuListFont()
 
 int bookmarkStatusTop()
 {
-	return screens::layoutY() - buttonFontSize * 3 / 2;
+	return renderer::screenTextHeight(top_scr) - buttonFontSize * 3 / 2;
 }
 
 int bookmarkProgressBottom()
@@ -274,25 +274,40 @@ void drawTopContextOverlay(const string& bookTitle, const string& modeTitle, con
 	const int clockTop = bookmarkStatusTop();
 	const int left = 10;
 	const int right = width - 10;
+	const bool portrait = width < 300;
 	const int headerY2 = 32;
-	const int cardY1 = clockTop - 70;
-	const int cardY2 = clockTop - 34;
 	const int footerY1 = clockTop - 28;
 	const int footerY2 = clockTop - 4;
-	const int detailX2 = width - 118;
-	const int summaryX1 = detailX2 + 8;
 
 	renderer::fillRect(0, 0, width, headerY2, Blend(28), top_scr);
 	renderer::rect(left, 4, right, headerY2, top_scr);
 	renderer::printStr(eUtf8, top_scr, left + 8, 18, ellipsizedSlice(bookTitle, 0, right - left - 96, 14), 0, 0, 14);
 	renderer::printStr(eUtf8, top_scr, right - renderer::strWidth(eUtf8, modeTitle, 0, 0, 10) - 8, 18, modeTitle, 0, 0, 10);
 
-	renderer::fillRect(left, cardY1, detailX2, cardY2, Blend(18), top_scr);
-	renderer::rect(left, cardY1, detailX2, cardY2, top_scr);
-	renderer::fillRect(summaryX1, cardY1, right, cardY2, Blend(18), top_scr);
-	renderer::rect(summaryX1, cardY1, right, cardY2, top_scr);
-	drawOverlayTextBlock(left + 8, cardY1 + 8, detailX2 - left - 16, detailText, 10, 2);
-	drawOverlayTextBlock(summaryX1 + 8, cardY1 + 8, right - summaryX1 - 16, summaryText, 10, 2);
+	if(!portrait) {
+		const int cardY1 = clockTop - 70;
+		const int cardY2 = clockTop - 34;
+		const int detailX2 = width - 118;
+		const int summaryX1 = detailX2 + 8;
+		renderer::fillRect(left, cardY1, detailX2, cardY2, Blend(18), top_scr);
+		renderer::rect(left, cardY1, detailX2, cardY2, top_scr);
+		renderer::fillRect(summaryX1, cardY1, right, cardY2, Blend(18), top_scr);
+		renderer::rect(summaryX1, cardY1, right, cardY2, top_scr);
+		drawOverlayTextBlock(left + 8, cardY1 + 8, detailX2 - left - 16, detailText, 10, 2);
+		drawOverlayTextBlock(summaryX1 + 8, cardY1 + 8, right - summaryX1 - 16, summaryText, 10, 2);
+	}
+	else {
+		const int detailY1 = clockTop - 104;
+		const int detailY2 = detailY1 + 32;
+		const int summaryY1 = detailY2 + 8;
+		const int summaryY2 = summaryY1 + 24;
+		renderer::fillRect(left, detailY1, right, detailY2, Blend(18), top_scr);
+		renderer::rect(left, detailY1, right, detailY2, top_scr);
+		renderer::fillRect(left, summaryY1, right, summaryY2, Blend(18), top_scr);
+		renderer::rect(left, summaryY1, right, summaryY2, top_scr);
+		drawOverlayTextBlock(left + 8, detailY1 + 6, right - left - 16, detailText, 10, 2);
+		drawOverlayTextBlock(left + 8, summaryY1 + 5, right - left - 16, summaryText, 10, 1);
+	}
 
 	renderer::fillRect(left, footerY1, right, footerY2, Blend(28), top_scr);
 	renderer::rect(left, footerY1, right, footerY2, top_scr);

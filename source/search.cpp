@@ -47,7 +47,7 @@ string compactText(const string& text, size_t maxChars)
 void drawSearchTopOverlay(const string& bookTitle, const string& searchstr, bool doCI, const string& status)
 {
 	const int width = renderer::screenTextWidth(top_scr) - 1;
-	const int clockTop = screens::layoutY() - buttonFontSize * 3 / 2;
+	const int clockTop = renderer::screenTextHeight(top_scr) - buttonFontSize * 3 / 2;
 	const int left = 10;
 	const int right = width - 10;
 	const int cardY1 = clockTop - 70;

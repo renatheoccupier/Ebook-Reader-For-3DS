@@ -67,6 +67,25 @@ struct PreviewPathCacheEntry
 vector<PreviewPathCacheEntry> gPreviewPathCache(kPreviewPathCacheEntries);
 u32 gPreviewPathCacheStamp = 1;
 
+bool topPreviewPortrait(int width)
+{
+	return width < 300;
+}
+
+void previewFrameRect(int width, int clockTop, int& x1, int& y1, int& x2, int& y2)
+{
+	x1 = 12;
+	y1 = 86;
+	if(topPreviewPortrait(width)) {
+		x2 = width - 12;
+		y2 = 226;
+		return;
+	}
+	x2 = 144;
+	y1 = 82;
+	y2 = clockTop - 36;
+}
+
 int browserListRight()
 {
 	return MAX(40, int(screens::layoutX()) - kBrowserScrollbarGutter);
@@ -74,7 +93,7 @@ int browserListRight()
 
 int statusTop()
 {
-	return screens::layoutY() - buttonFontSize * 3 / 2;
+	return renderer::screenTextHeight(top_scr) - buttonFontSize * 3 / 2;
 }
 
 bool statPath(const string& path, struct stat& st)
@@ -839,10 +858,10 @@ void file_browser :: showPreview(const string& file_name)
 	previewWidth = previewHeight = 0;
 	previewHasImage = false;
 	if(kPreviewCoversEnabled) {
-		const int frameX1 = 12;
-		const int frameX2 = 144;
-		const int frameY1 = 82;
-		const int frameY2 = 180;
+		const int width = renderer::screenTextWidth(top_scr) - 1;
+		const int clockTop = statusTop();
+		int frameX1, frameY1, frameX2, frameY2;
+		previewFrameRect(width, clockTop, frameX1, frameY1, frameX2, frameY2);
 		const int innerWidth = frameX2 - frameX1 - 10;
 		const int innerHeight = frameY2 - frameY1 - 10;
 		if(innerWidth > 24 && innerHeight > 24 &&
@@ -930,16 +949,15 @@ void file_browser :: drawPreview()
 	const int rightPad = width - 10;
 	const int footerY1 = clockTop - 28;
 	const int footerY2 = clockTop - 4;
-	const int previewX1 = 12;
-	const int previewX2 = 144;
-	const int previewY1 = 82;
-	const int previewY2 = footerY1 - 8;
-	const int detailX1 = 156;
+	const bool portrait = topPreviewPortrait(width);
+	int previewX1, previewY1, previewX2, previewY2;
+	previewFrameRect(width, clockTop, previewX1, previewY1, previewX2, previewY2);
+	const int detailX1 = portrait ? 12 : 156;
 	const int detailX2 = width - 12;
-	const int detailY1 = previewY1;
-	const int detailY2 = 136;
-	const int metaY1 = 144;
-	const int metaY2 = previewY2;
+	const int detailY1 = portrait ? (previewY2 + 10) : previewY1;
+	const int detailY2 = portrait ? (footerY1 - 8) : 136;
+	const int metaY1 = portrait ? detailY1 : 144;
+	const int metaY2 = portrait ? detailY2 : previewY2;
 
 	renderer::fillRect(0, 0, width, 30, Blend(32), top_scr);
 	renderer::printStr(eUtf8, top_scr, 10, 20, "Library", 0, 0, 18);
@@ -955,12 +973,13 @@ void file_browser :: drawPreview()
 	renderer::fillRect(previewX1, previewY1, previewX2, previewY2, Blend(20), top_scr);
 	renderer::rect(previewX1, previewY1, previewX2, previewY2, top_scr);
 	renderer::rect(detailX1, detailY1, detailX2, detailY2, top_scr);
-	renderer::rect(detailX1, metaY1, detailX2, metaY2, top_scr);
+	if(!portrait)
+		renderer::rect(detailX1, metaY1, detailX2, metaY2, top_scr);
 
 	if(flist.empty()) {
 		drawPreviewIcon(previewX1 + 4, previewY1 + 4, previewX2 - 4, previewY2 - 4);
 		drawWrappedText(top_scr, detailX1 + 8, detailY1 + 10, detailX2 - detailX1 - 16, "No EPUB files in this folder", 12, 3);
-		drawWrappedText(top_scr, detailX1 + 8, metaY1 + 10, detailX2 - detailX1 - 16, "Use Left to go back or copy books into sdmc:/books/ or the app books folder.", 10, 3);
+		drawWrappedText(top_scr, detailX1 + 8, metaY1 + (portrait ? 54 : 10), detailX2 - detailX1 - 16, "Use Left to go back or copy books into sdmc:/books/ or the app books folder.", 10, 3);
 		renderer::printClock(top_scr, true);
 		return;
 	}
@@ -973,11 +992,11 @@ void file_browser :: drawPreview()
 	drawWrappedText(top_scr, detailX1 + 8, detailY1 + 10, detailX2 - detailX1 - 16, current.second, 12, 3);
 	renderer::printStr(eUtf8, top_scr, detailX1 + 8, detailY1 + 58, kind, 0, 0, 10);
 	if(!sizeLabel.empty())
-		renderer::printStr(eUtf8, top_scr, detailX1 + 72, detailY1 + 58, sizeLabel, 0, 0, 10);
+		renderer::printStr(eUtf8, top_scr, detailX1 + (portrait ? 74 : 72), detailY1 + 58, sizeLabel, 0, 0, 10);
 
 	if(current.first == folder) {
 		drawFolderIcon(previewX1 + 4, previewY1 + 8, previewX2 - 4, previewY2 - 8);
-		drawWrappedText(top_scr, detailX1 + 8, metaY1 + 10, detailX2 - detailX1 - 16, "Open to browse inside this directory. Left goes to the parent folder.", 10, 3);
+		drawWrappedText(top_scr, detailX1 + 8, metaY1 + (portrait ? 76 : 10), detailX2 - detailX1 - 16, "Open to browse inside this directory. Left goes to the parent folder.", 10, 3);
 	}
 	else {
 		if(previewHasImage && !previewPixels.empty()) {
@@ -990,18 +1009,19 @@ void file_browser :: drawPreview()
 			const int drawX = innerX1 + (boxW - previewWidth) / 2;
 			const int drawY = innerY1 + (boxH - previewHeight) / 2;
 			renderer::drawImageSlice(top_scr, drawX, drawY, previewPixels, previewWidth, previewHeight, 0, previewHeight);
-			drawWrappedText(top_scr, detailX1 + 8, metaY1 + 10, detailX2 - detailX1 - 16, "Embedded cover ready. Press A or Right to open this EPUB.", 10, 3);
+			drawWrappedText(top_scr, detailX1 + 8, metaY1 + (portrait ? 76 : 10), detailX2 - detailX1 - 16, "Embedded cover ready. Press A or Right to open this EPUB.", 10, 3);
 		}
 		else {
 			drawPreviewIcon(previewX1 + 4, previewY1 + 4, previewX2 - 4, previewY2 - 4);
 			const string status = previewPending ? "Loading cover..." : "No embedded JPG cover found";
-			drawWrappedText(top_scr, detailX1 + 8, metaY1 + 10, detailX2 - detailX1 - 16, status, 10, 3);
+			drawWrappedText(top_scr, detailX1 + 8, metaY1 + (portrait ? 76 : 10), detailX2 - detailX1 - 16, status, 10, 3);
 		}
 	}
 
 	renderer::fillRect(leftPad, footerY1, rightPad, footerY2, Blend(28), top_scr);
 	renderer::rect(leftPad, footerY1, rightPad, footerY2, top_scr);
-	drawWrappedText(top_scr, leftPad + 8, footerY1 + 4, rightPad - leftPad - 16, "Up/Down move  A/Right open  B/Left back", 10, 1);
+	drawWrappedText(top_scr, leftPad + 8, footerY1 + 4, rightPad - leftPad - 16,
+		portrait ? "Up/Down move  A open  B back" : "Up/Down move  A/Right open  B/Left back", 10, 1);
 	renderer::printClock(top_scr, true);
 }
 
