@@ -5,20 +5,20 @@
 
 struct epub_entry
 {
-	string text;
 	string image;
-	vector<marked> marks;
 	parType type;
-	epub_entry() : type(pnormal) {}
-	epub_entry(const string& txt, parType t, const vector<marked>& m = vector<marked>()) : text(txt), marks(m), type(t) {}
-	epub_entry(const string& img) : image(img), type(pimage) {}
+	u32 chapterIndex;
+	u32 localIndex;
+	epub_entry() : type(pnormal), chapterIndex(0), localIndex(0) {}
+	epub_entry(u32 chapter, u32 local, parType t = pnormal) : type(t), chapterIndex(chapter), localIndex(local) {}
+	epub_entry(const string& img) : image(img), type(pimage), chapterIndex(0), localIndex(0) {}
 	bool isImage() const { return !image.empty(); }
 };
 
 class epub_book : public Book
 {
 public:
-	epub_book(const string& filename) : Book(filename), archive(NULL), imageCacheStamp(1) {
+	epub_book(const string& filename) : Book(filename), loadedChapterIndex(-1), archive(NULL), imageCacheStamp(1) {
 		imageCache.resize(3);
 	}
 	~epub_book();
@@ -48,15 +48,22 @@ private:
 	bool ensureArchiveOpen();
 	void closeArchive();
 	void clearImageCache();
+	void loadChapterCache(u32 chapterIndex);
 	bool tryLoadCachedImage(const string& zip_path, u16 max_width, u16 max_height, paragrath& target);
 	void storeCachedImage(const string& zip_path, const vector<u16>& pixels, u16 width, u16 height, u16 max_width, u16 max_height);
 	vector<epub_entry> par_index;
-	int parse_doc(const pugi::xml_node& node, const string& chapter_path, const string& chapter_base);
+	int parse_doc(const pugi::xml_node& node, const string& chapter_path, const string& chapter_base, u32 chapterIndex, u32& localIndex);
+	int buildChapterCache(const pugi::xml_node& node, vector<paragrath>& out, bool& pushFlag);
 	int extract_par(const pugi::xml_node& node, paragrath& target);
-	void appendTextEntry(const pugi::xml_node& node, bool isTitle = false);
-	void appendEmptyEntry();
+	void appendTextEntry(const pugi::xml_node& node, u32 chapterIndex, u32& localIndex, bool isTitle = false);
+	void appendEmptyEntry(u32 chapterIndex, u32& localIndex);
+	void appendChapterTextEntry(const pugi::xml_node& node, vector<paragrath>& out, bool isTitle = false);
+	void appendChapterEmptyEntry(vector<paragrath>& out);
 	u32 total_paragraths() {return par_index.size();}
 	bool push_it;
+	vector<string> chapterFiles;
+	vector<paragrath> loadedChapterEntries;
+	int loadedChapterIndex;
 	std::map<string, u32> chapter_targets;
 	std::map<string, u32> anchor_targets;
 	std::map<string, unz_file_pos> zip_index;

@@ -24,6 +24,70 @@ const u32 kOpenProgressUpdateStep = 8u;
 const u32 kMaxImageEntryBytes = 8u * 1024u * 1024u;
 const u32 kMaxChapterEntryBytes = 6u * 1024u * 1024u;
 const u32 kMaxTotalChapterBytes = 24u * 1024u * 1024u;
+const char nl_tags[] = " br div dt h1 h2 h3 h4 h5 h6 hr li p pre ol td ul body ";
+const char br_tags[] = " br ";
+const char skip_block_tags[] = " title script style binary image svg ";
+const char title_tags[] = " title h1 h2 h3 h4 h5 h6 ";
+const char mark_parent_tags[] = " b tt big small ";
+const char skip_inline_tags[] = " script style binary image img svg ";
+
+bool tagListed(const char* tag, const char* list)
+{
+	if(tag == NULL || *tag == '\0') return false;
+	const size_t tagLen = strlen(tag);
+	for(const char* p = list; *p; ) {
+		while(*p == ' ') ++p;
+		const char* start = p;
+		while(*p && *p != ' ') ++p;
+		if((size_t)(p - start) == tagLen && 0 == memcmp(start, tag, tagLen))
+			return true;
+	}
+	return false;
+}
+
+string compactBookTitle(const string& name, u32 maxChars)
+{
+	if(name.size() <= maxChars) return name;
+	return name.substr(0, maxChars - 3) + "...";
+}
+
+void drawOpenProgress(const string& bookFile, u32 current, u32 total)
+{
+	renderer::setTopScreenMirror(false);
+	renderer::clearScreens(settings::bgCol);
+	const int topW = renderer::screenTextWidth(top_scr) - 1;
+	const int topH = renderer::screenTextHeight(top_scr) - 1;
+	const int cardX1 = 16;
+	const int cardX2 = topW - 16;
+	const int cardY1 = 48;
+	const int cardY2 = topH - 28;
+	string dots;
+	for(u32 i = 0; i < ((current / kOpenProgressUpdateStep) % 4u); ++i) dots += '.';
+
+	renderer::fillRect(cardX1, cardY1, cardX2, cardY2, Blend(18), top_scr);
+	renderer::rect(cardX1, cardY1, cardX2, cardY2, top_scr);
+	renderer::printStr(eUtf8, top_scr, cardX1 + 12, cardY1 + 22, "Opening Book", 0, 0, 18);
+	renderer::printStr(eUtf8, top_scr, cardX1 + 12, cardY1 + 46, compactBookTitle(noExt(noPath(bookFile)), 34), 0, 0, 12);
+	renderer::printStr(eUtf8, top_scr, cardX1 + 12, cardY1 + 68, ("Loading" + dots), 0, 0, 12);
+
+	const int barX1 = cardX1 + 12;
+	const int barX2 = cardX2 - 12;
+	const int barY1 = cardY2 - 34;
+	const int barY2 = cardY2 - 20;
+	renderer::rect(barX1, barY1, barX2, barY2, top_scr);
+	if(total > 0) {
+		const int fillX2 = barX1 + int((u64)(barX2 - barX1) * MIN(current, total) / total);
+		if(fillX2 > barX1)
+			renderer::fillRect(barX1 + 1, barY1 + 1, fillX2, barY2 - 1, Blend(112), top_scr);
+	}
+
+	renderer::clearScreens(settings::bgCol, bottom_scr);
+	char progress[48];
+	sprintf(progress, "%lu / %lu chapters", (unsigned long)MIN(current, total), (unsigned long)total);
+	renderer::printStr(eUtf8, bottom_scr, 16, 34, progress, 0, 0, 13);
+	renderer::printStr(eUtf8, bottom_scr, 16, 58, "Please wait", 0, 0, 11);
+	renderer::present();
+}
 
 bool buildZipIndex(unzFile zip, zip_index_map& index)
 {
@@ -608,6 +672,9 @@ void epub_book :: parse()
 		const string chapter = chapters_unordered[item.attribute("idref").value()];
 		if(!chapter.empty()) chapter_files.push_back(chapter);
 	}
+	chapterFiles = chapter_files;
+	loadedChapterEntries.clear();
+	loadedChapterIndex = -1;
 	delete[] buf;
 	buf = NULL;
 
@@ -623,11 +690,11 @@ void epub_book :: parse()
 	}
 
 	renderer::clearScreens(0);
+	drawOpenProgress(bookFile, 0, chapter_files.size());
 	push_it = true;
 	for(u32 i = 0; i < chapter_files.size(); ++i) {
 		if(i == 0 || i + 1u == chapter_files.size() || 0 == (i % kOpenProgressUpdateStep)) {
-			consoleClear();
-			iprintf("loading %lu/%d\n", i + 1, (int)chapter_files.size());
+			drawOpenProgress(bookFile, i + 1u, chapter_files.size());
 		}
 		
 		if(!loadFromZip(archive, chapter_files[i], buf, size, true, &zip_index)) continue;
@@ -638,30 +705,24 @@ void epub_book :: parse()
 		if(result.status == pugi::status_ok) {
 			const string chapter_path = chapter_files[i];
 			const string chapter_base = dirName(chapter_path);
+			u32 localIndex = 0;
 			if(chapter_targets.find(chapter_path) == chapter_targets.end())
 				chapter_targets[chapter_path] = par_index.size();
 
 			pugi::xml_node body = findNodeByName(chapter_doc, "body");
 			if(body) {
 				for(pugi::xml_node child = body.first_child(); child; child = child.next_sibling())
-					parse_doc(child, chapter_path, chapter_base);
+					parse_doc(child, chapter_path, chapter_base, i, localIndex);
 			}
 			else if(chapter_doc.document_element()) {
-				parse_doc(chapter_doc.document_element(), chapter_path, chapter_base);
+				parse_doc(chapter_doc.document_element(), chapter_path, chapter_base, i, localIndex);
 			}
 		}
 		delete[] buf;
 		buf = NULL;
 	}
-	consoleClear();
+	drawOpenProgress(bookFile, chapter_files.size(), chapter_files.size());
 }
-
-static const string nl_tags(" br div dt h1 h2 h3 h4 h5 h6 hr li p pre ol td ul body ");
-static const string br_tags = " br ";
-static const string skip_block_tags(" title script style binary image svg ");
-static const string title_tags(" title h1 h2 h3 h4 h5 h6 ");
-static const string mark_parent_tags(" b tt big small ");
-static const string skip_inline_tags(" script style binary image img svg ");
 
 bool epub_book :: load_image(const string& zip_path)
 {
@@ -753,11 +814,14 @@ void epub_book :: parag_str (int parag_num)
 		}
 		return;
 	}
-	parag.str = entry.text;
-	parag.marks = entry.marks;
+	loadChapterCache(entry.chapterIndex);
+	if(loadedChapterIndex == (int)entry.chapterIndex && entry.localIndex < loadedChapterEntries.size())
+		parag = loadedChapterEntries[entry.localIndex];
+	else
+		parag.type = entry.type;
 }
 
-int epub_book :: parse_doc(const pugi::xml_node& node, const string& chapter_path, const string& chapter_base)
+int epub_book :: parse_doc(const pugi::xml_node& node, const string& chapter_path, const string& chapter_base, u32 chapterIndex, u32& localIndex)
 {
 	struct ParseFrame
 	{
@@ -774,13 +838,13 @@ int epub_book :: parse_doc(const pugi::xml_node& node, const string& chapter_pat
 		if(!frame.node) continue;
 
 		if(frame.exitPhase) {
-			if(push_it) appendEmptyEntry();
+			if(push_it) appendEmptyEntry(chapterIndex, localIndex);
 			push_it = true;
 			continue;
 		}
 
-		const string tag = frame.node.name();
-		const bool isTitle = !tag.empty() && string::npos != title_tags.find(' ' + tag + ' ');
+		const char* tag = frame.node.name();
+		const bool isTitle = tagListed(tag, title_tags);
 		const char* attrs[2] = {"id", "name"};
 		for(u32 i = 0; i < 2; ++i) {
 			const char* value = frame.node.attribute(attrs[i]).value();
@@ -792,7 +856,7 @@ int epub_book :: parse_doc(const pugi::xml_node& node, const string& chapter_pat
 			anchor_targets[anchorKey] = target;
 		}
 
-		if(tag == "img") {
+		if(tag != NULL && 0 == strcmp(tag, "img")) {
 			const string path = normalizeZipPath(chapter_base, frame.node.attribute("src").value());
 			if(!path.empty()) {
 				par_index.push_back(epub_entry(path));
@@ -801,16 +865,16 @@ int epub_book :: parse_doc(const pugi::xml_node& node, const string& chapter_pat
 			continue;
 		}
 
-		const bool newl = !tag.empty() && string::npos != nl_tags.find(' ' + tag + ' ');
-		const bool br = !tag.empty() && string::npos != br_tags.find(' ' + tag + ' ');
-		const bool ret = !tag.empty() && string::npos != skip_block_tags.find(' ' + tag + ' ');
+		const bool newl = tagListed(tag, nl_tags);
+		const bool br = tagListed(tag, br_tags);
+		const bool ret = tagListed(tag, skip_block_tags);
 
 		if(newl) {
 			if(br) {
-				if(frame.node.next_sibling()) appendTextEntry(frame.node.next_sibling(), isTitle);
-				else appendEmptyEntry();
+				if(frame.node.next_sibling()) appendTextEntry(frame.node.next_sibling(), chapterIndex, localIndex, isTitle);
+				else appendEmptyEntry(chapterIndex, localIndex);
 			}
-			else if(push_it) appendTextEntry(frame.node, isTitle);
+			else if(push_it) appendTextEntry(frame.node, chapterIndex, localIndex, isTitle);
 			push_it = false;
 		}
 		if(ret) continue;
@@ -822,22 +886,119 @@ int epub_book :: parse_doc(const pugi::xml_node& node, const string& chapter_pat
 	return 0;
 }
 
-void epub_book :: appendTextEntry(const pugi::xml_node& node, bool isTitle)
+void epub_book :: appendTextEntry(const pugi::xml_node& node, u32 chapterIndex, u32& localIndex, bool isTitle)
 {
 	if(!node) {
-		appendEmptyEntry();
+		appendEmptyEntry(chapterIndex, localIndex);
+		return;
+	}
+	par_index.push_back(epub_entry(chapterIndex, localIndex++, isTitle ? ptitle : pnormal));
+}
+
+void epub_book :: appendEmptyEntry(u32 chapterIndex, u32& localIndex)
+{
+	par_index.push_back(epub_entry(chapterIndex, localIndex++, pnormal));
+}
+
+void epub_book :: appendChapterTextEntry(const pugi::xml_node& node, vector<paragrath>& out, bool isTitle)
+{
+	if(!node) {
+		appendChapterEmptyEntry(out);
 		return;
 	}
 
 	paragrath paragraph;
 	paragraph.type = isTitle ? ptitle : pnormal;
 	extract_par(node, paragraph);
-	par_index.push_back(epub_entry(paragraph.str, paragraph.type, paragraph.marks));
+	out.push_back(paragraph);
 }
 
-void epub_book :: appendEmptyEntry()
+void epub_book :: appendChapterEmptyEntry(vector<paragrath>& out)
 {
-	par_index.push_back(epub_entry());
+	out.push_back(paragrath());
+}
+
+int epub_book :: buildChapterCache(const pugi::xml_node& node, vector<paragrath>& out, bool& pushFlag)
+{
+	struct ParseFrame
+	{
+		pugi::xml_node node;
+		bool exitPhase;
+		ParseFrame(const pugi::xml_node& value, bool exiting) : node(value), exitPhase(exiting) {}
+	};
+
+	vector<ParseFrame> stack;
+	if(node) stack.push_back(ParseFrame(node, false));
+	while(!stack.empty()) {
+		const ParseFrame frame = stack.back();
+		stack.pop_back();
+		if(!frame.node) continue;
+
+		if(frame.exitPhase) {
+			if(pushFlag) appendChapterEmptyEntry(out);
+			pushFlag = true;
+			continue;
+		}
+
+		const char* tag = frame.node.name();
+		const bool isTitle = tagListed(tag, title_tags);
+		if(tag != NULL && 0 == strcmp(tag, "img")) {
+			pushFlag = false;
+			continue;
+		}
+
+		const bool newl = tagListed(tag, nl_tags);
+		const bool br = tagListed(tag, br_tags);
+		const bool ret = tagListed(tag, skip_block_tags);
+
+		if(newl) {
+			if(br) {
+				if(frame.node.next_sibling()) appendChapterTextEntry(frame.node.next_sibling(), out, isTitle);
+				else appendChapterEmptyEntry(out);
+			}
+			else if(pushFlag) appendChapterTextEntry(frame.node, out, isTitle);
+			pushFlag = false;
+		}
+		if(ret) continue;
+
+		if(newl && !br) stack.push_back(ParseFrame(frame.node, true));
+		for(pugi::xml_node elem = frame.node.last_child(); elem; elem = elem.previous_sibling())
+			stack.push_back(ParseFrame(elem, false));
+	}
+	return 0;
+}
+
+void epub_book :: loadChapterCache(u32 chapterIndex)
+{
+	if(loadedChapterIndex == (int)chapterIndex) return;
+	loadedChapterEntries.clear();
+	loadedChapterIndex = -1;
+	if(chapterIndex >= chapterFiles.size()) return;
+	if(!ensureArchiveOpen()) return;
+
+	char* buf = NULL;
+	u32 size = 0;
+	if(!loadFromZip(archive, chapterFiles[chapterIndex], buf, size, true, &zip_index) || NULL == buf)
+		return;
+
+	pugi::xml_document chapter_doc;
+	const pugi::xml_parse_result result = chapter_doc.load_buffer_inplace(buf, size);
+	if(result.status != pugi::status_ok) {
+		delete[] buf;
+		return;
+	}
+
+	bool pushFlag = true;
+	pugi::xml_node body = findNodeByName(chapter_doc, "body");
+	if(body) {
+		for(pugi::xml_node child = body.first_child(); child; child = child.next_sibling())
+			buildChapterCache(child, loadedChapterEntries, pushFlag);
+	}
+	else if(chapter_doc.document_element()) {
+		buildChapterCache(chapter_doc.document_element(), loadedChapterEntries, pushFlag);
+	}
+	delete[] buf;
+	loadedChapterIndex = chapterIndex;
 }
 
 int epub_book :: extract_par(const pugi::xml_node& node, paragrath& target)
@@ -870,15 +1031,14 @@ int epub_book :: extract_par(const pugi::xml_node& node, paragrath& target)
 			continue;
 		}
 
-		const string tag = frame.node.name();
-		const string parentTag = frame.node.parent().name();
-		frame.newl = !tag.empty() && string::npos != nl_tags.find(' ' + tag + ' ');
-		const bool isTitle = (!parentTag.empty() && string::npos != title_tags.find(' ' + parentTag + ' '))
-			|| (!tag.empty() && string::npos != title_tags.find(' ' + tag + ' '));
-		frame.bold = (parentTag == "b") || (parentTag == "strong");
-		frame.italic = (parentTag == "i") || (parentTag == "em");
-		frame.nospace = (frame.bold || frame.italic) || (!parentTag.empty() && string::npos != mark_parent_tags.find(' ' + parentTag + ' '));
-		const bool ret = !tag.empty() && string::npos != skip_inline_tags.find(' ' + tag + ' ');
+		const char* tag = frame.node.name();
+		const char* parentTag = frame.node.parent().name();
+		frame.newl = tagListed(tag, nl_tags);
+		const bool isTitle = tagListed(parentTag, title_tags) || tagListed(tag, title_tags);
+		frame.bold = (parentTag != NULL) && (0 == strcmp(parentTag, "b") || 0 == strcmp(parentTag, "strong"));
+		frame.italic = (parentTag != NULL) && (0 == strcmp(parentTag, "i") || 0 == strcmp(parentTag, "em"));
+		frame.nospace = (frame.bold || frame.italic) || tagListed(parentTag, mark_parent_tags);
+		const bool ret = tagListed(tag, skip_inline_tags);
 
 		if(ret) continue;
 		if(isTitle) target.type = ptitle;

@@ -32,7 +32,7 @@ const int kPreviewTitleLines = 3;
 const int kPreviewTitleGap = 2;
 const int kPreviewImageGap = 8;
 const int kPromptFont = 12;
-const int kPreviewWarmupFrames = 8;
+const int kPreviewWarmupFrames = 45;
 const u32 kPreviewMaxEntryBytes = 768u * 1024u;
 const u32 kPreviewCacheEntries = 12u;
 const u32 kPreviewPathCacheEntries = 16u;
@@ -42,6 +42,8 @@ const int kScrollbarFlashFrames = 30;
 string gLastBrowserPath;
 int gLastBrowserPos = 0;
 int gLastBrowserCursor = 0;
+string gCachedDirPath;
+vector<entry> gCachedDirEntries;
 
 struct PreviewCacheEntry
 {
@@ -248,6 +250,14 @@ string previewLabel(const entry& item)
 {
 	if(item.first == file) return noExt(item.second);
 	return item.second;
+}
+
+string loadingDots(u32 tick)
+{
+	string dots;
+	const u32 count = (tick / 12u) % 4u;
+	for(u32 i = 0; i < count; ++i) dots += '.';
+	return dots;
 }
 
 struct jpeg_error_state
@@ -793,6 +803,10 @@ void file_browser :: cd()
 	pos = 0;
 	cursor = 0;
 	flist.clear();
+	if(path == gCachedDirPath) {
+		flist = gCachedDirEntries;
+		return;
+	}
 
 	DIR* dir = opendir(path.c_str());
 	struct dirent* ent;
@@ -815,6 +829,8 @@ void file_browser :: cd()
 	}
 	closedir(dir);
 	sort (flist.begin(), flist.end(), comp);
+	gCachedDirPath = path;
+	gCachedDirEntries = flist;
 }
 
 void file_browser :: clampCursor()
@@ -841,6 +857,7 @@ void file_browser :: resetPreview()
 	previewHasImage = false;
 	previewPending = false;
 	previewDelayFrames = 0;
+	previewAnimTick = 0;
 	promptActive = false;
 }
 
@@ -864,6 +881,7 @@ void file_browser :: showPreview(const string& file_name)
 	}
 	previewPending = false;
 	previewDelayFrames = 0;
+	previewAnimTick = 0;
 	promptActive = false;
 }
 
@@ -912,6 +930,7 @@ void file_browser :: syncPreviewToCursor(bool force)
 	previewHasImage = false;
 	previewPending = true;
 	previewDelayFrames = kPreviewWarmupFrames;
+	previewAnimTick = 0;
 	promptActive = false;
 }
 
@@ -973,7 +992,12 @@ void file_browser :: drawPreview()
 		drawWrappedText(top_scr, previewX1 + 12, previewY2 - 30, previewX2 - previewX1 - 24, "Open folder", 10, 1);
 	}
 	else {
-		if(previewHasImage && !previewPixels.empty()) {
+		if(previewPending && previewFile == path + current.second) {
+			drawPreviewIcon(previewX1 + 4, previewY1 + 4, previewX2 - 4, previewY2 - 4);
+			drawWrappedText(top_scr, previewX1 + 12, previewY2 - 30, previewX2 - previewX1 - 24,
+				"Loading preview" + loadingDots(previewAnimTick), 10, 1);
+		}
+		else if(previewHasImage && !previewPixels.empty()) {
 			const int innerX1 = previewX1 + 5;
 			const int innerY1 = previewY1 + 5;
 			const int innerX2 = previewX2 - 5;
@@ -1074,6 +1098,10 @@ string file_browser :: run()
 
 	while(pumpPowerManagement()){
 		swiWaitForVBlank();
+		if(previewPending) {
+			++previewAnimTick;
+			if(0 == (previewAnimTick % 12u)) drawPreview();
+		}
 		const bool previewUpdated = tickPreview();
 		if(scrollbarFrames > 0) {
 			--scrollbarFrames;
