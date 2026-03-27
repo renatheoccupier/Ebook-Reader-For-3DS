@@ -23,6 +23,7 @@ static u16 gFlashBuffer[kBufferWidth * kBufferHeight];
 static bool gVideoReady = false;
 static bool gFrameDirty = false;
 static bool gMirrorTopFromBottom = false;
+static bool gPtmuReady = false;
 
 static const u8 gamma150[32] = {0, 0, 1, 1, 1, 2, 3, 3, 4, 5, 6, 7, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 19, 20, 21, 22, 24, 25, 27, 28, 30, 31};
 static const u8 gamma067[32] = {0, 3, 5, 7, 8, 9, 10, 11, 13, 14, 15, 16, 16, 17, 18, 19, 20, 21, 22, 22, 23, 24, 25, 25, 26, 27, 28, 28, 29, 30, 30, 31};
@@ -75,21 +76,46 @@ void fillFramebufferRect(u8* fb, int width, int x1, int y1, int x2, int y2, u16 
 
 void drawStatusBar(scr_id scr, bool framed)
 {
-	char buf[14];
+	char timeBuf[12];
+	char batteryBuf[12];
 	time_t unixTime = time(NULL);
 	struct tm* timeStruct = localtime(&unixTime);
-	sprintf(buf, "%02d:%02d:%02d", timeStruct->tm_hour, timeStruct->tm_min, timeStruct->tm_sec);
+	sprintf(timeBuf, "%02d:%02d", timeStruct->tm_hour, timeStruct->tm_min);
+
+	u8 batteryLevel = 0;
+	u8 chargeState = 0;
+	if(gPtmuReady && R_SUCCEEDED(PTMU_GetBatteryLevel(&batteryLevel))) {
+		if(R_FAILED(PTMU_GetBatteryChargeState(&chargeState)))
+			chargeState = 0;
+		const int batteryPercent = MIN(100, int(batteryLevel) * 20);
+		sprintf(batteryBuf, "%3d%%%c", batteryPercent, chargeState ? '+' : ' ');
+	}
+	else
+		sprintf(batteryBuf, "--%% ");
 
 	const int width = textLimitX(scr);
 	const int height = screenTextHeight(scr) - 1;
+	const int batteryWidth = strWidth(eUtf8, batteryBuf, 0, 0, buttonFontSize);
+	if(framed) {
+		const u16 boxWidth = 132;
+		const u16 x1 = MAX(6, (width - boxWidth) / 2);
+		const u16 x2 = MIN(width, x1 + boxWidth);
+		const u16 y1 = 6;
+		const u16 y2 = y1 + buttonFontSize + 10;
+		const u16 baselineY = y1 + buttonFontSize + 1;
+		fillRect(x1, y1, x2, y2, settings::bgCol, scr);
+		rect(x1, y1, x2, y2, scr);
+		printStr(eUtf8, scr, x1 + 8, baselineY, timeBuf, 0, 0, buttonFontSize);
+		printStr(eUtf8, scr, MAX(int(x1) + 8, int(x2) - batteryWidth - 8), baselineY, batteryBuf, 0, 0, buttonFontSize);
+		return;
+	}
+
 	const u16 y1 = height - buttonFontSize * 3 / 2;
 	const u16 y2 = height;
 	const u16 baselineY = height - buttonFontSize / 2;
-
 	fillRect(0, y1, width, y2, settings::bgCol, scr);
-	if(framed) rect(0, y1, width, y2, scr);
-	printStr(eUtf8, scr, 5, baselineY, buf, 0, 0, buttonFontSize);
-	printStr(eUtf8, scr, width - 36, baselineY, "3DS", 0, 0, buttonFontSize);
+	printStr(eUtf8, scr, 5, baselineY, timeBuf, 0, 0, buttonFontSize);
+	printStr(eUtf8, scr, MAX(5, width - batteryWidth - 5), baselineY, batteryBuf, 0, 0, buttonFontSize);
 }
 
 void fillFramebuffer(gfxScreen_t screen, u16 color)
@@ -212,6 +238,7 @@ void initVideo()
 {
 	if(gVideoReady) return;
 	gfxInitDefault();
+	gPtmuReady = R_SUCCEEDED(ptmuInit());
 	gfxSetDoubleBuffering(GFX_TOP, true);
 	gfxSetDoubleBuffering(GFX_BOTTOM, true);
 	bmp[bottom_scr] = gBuffers[bottom_scr];
@@ -225,6 +252,10 @@ void initVideo()
 void shutdownVideo()
 {
 	if(!gVideoReady) return;
+	if(gPtmuReady) {
+		ptmuExit();
+		gPtmuReady = false;
+	}
 	gfxExit();
 	gVideoReady = false;
 	gFrameDirty = false;
@@ -588,12 +619,12 @@ void correctTech()
 
 void printClock(scr_id scr, bool forced)
 {
-	static int olds = -1;
+	static int olds[2] = {-1, -1};
 	time_t unixTime = time(NULL);
 	struct tm* timeStruct = localtime(&unixTime);
 	int s = timeStruct->tm_sec;
-	if(s == olds && !forced) return;
-	olds = s;
+	if(s == olds[scr] && !forced) return;
+	olds[scr] = s;
 	drawStatusBar(scr, false);
 }
 
@@ -641,7 +672,7 @@ void TFlashClock::show(scr_id scr)
 
 void TFlashClock::hide()
 {
-	if(++frames > 20 && _scr != 66) {
+	if(++frames > 60 && _scr != 66) {
 		memcpy(bmp[_scr], gFlashBuffer, sizeof(gFlashBuffer));
 		_scr = 66;
 	}

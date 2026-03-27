@@ -32,6 +32,8 @@ struct grid
 {
 	const string* update();
 	void draw();
+	bool nextPage();
+	bool prevPage();
 	grid* push(const string*, int skip = 0, bool plusmin = false);
 	grid(u32 it = 0);
 	void print(const string* targ, string mess);

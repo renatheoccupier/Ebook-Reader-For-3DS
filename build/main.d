@@ -116,7 +116,10 @@ main.o: /home/rena/Work/NDS/EBookReaderFor3DS/source/main.cpp \
  /home/rena/Work/NDS/EBookReaderFor3DS/include/utf8.h \
  /home/rena/Work/NDS/EBookReaderFor3DS/include/utf8/checked.h \
  /home/rena/Work/NDS/EBookReaderFor3DS/include/utf8/core.h \
- /home/rena/Work/NDS/EBookReaderFor3DS/include/utf8/unchecked.h
+ /home/rena/Work/NDS/EBookReaderFor3DS/include/utf8/unchecked.h \
+ /opt/devkitpro/portlibs/3ds/include/png.h \
+ /opt/devkitpro/portlibs/3ds/include/pnglibconf.h \
+ /opt/devkitpro/portlibs/3ds/include/pngconf.h
 /home/rena/Work/NDS/EBookReaderFor3DS/include/renderer.h:
 /home/rena/Work/NDS/EBookReaderFor3DS/include/settings.h:
 /home/rena/Work/NDS/EBookReaderFor3DS/include/default.h:
@@ -235,3 +238,6 @@ main.o: /home/rena/Work/NDS/EBookReaderFor3DS/source/main.cpp \
 /home/rena/Work/NDS/EBookReaderFor3DS/include/utf8/checked.h:
 /home/rena/Work/NDS/EBookReaderFor3DS/include/utf8/core.h:
 /home/rena/Work/NDS/EBookReaderFor3DS/include/utf8/unchecked.h:
+/opt/devkitpro/portlibs/3ds/include/png.h:
+/opt/devkitpro/portlibs/3ds/include/pnglibconf.h:
+/opt/devkitpro/portlibs/3ds/include/pngconf.h:

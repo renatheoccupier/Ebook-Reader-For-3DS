@@ -45,10 +45,24 @@ The expected output is:
 - `EBookReaderFor3DS.3dsx`
 - `EBookReaderFor3DS.smdh`
 
+## EPUB Prep
+
+Use the bundled optimizer before copying large books to the SD card:
+
+```sh
+python3 tools/optimize_epub.py book.epub book-3ds.epub
+```
+
+The default preset is now tuned for 3DS screens (`400x240`, lighter JPEG/PNG budgets) and it reports whether the EPUB spine is still too large for the 3DS parser. If the tool warns that total spine text or a single chapter is over budget, split the book first:
+
+```sh
+python3 tools/split_epub.py book.epub out_dir/
+```
+
 ## Notes
 
-- The renderer uses a 400x240 top-screen buffer and a 320x240 bottom-screen buffer, so the top screen can show wider reading pages and richer context panels.
-- Browser, home, bookmark, settings, and search screens now use the extra top-screen width for 3DS-specific dashboards instead of treating it like a centered DS screen.
+- The renderer uses a 400x240 top-screen buffer and a 320x240 bottom-screen buffer, so the top screen can show a wider reading page, preview cards, and status information.
+- Home, browser, bookmark, and settings screens now favor simpler 3DS-native panels instead of DS-style pop-up dashboards on the top screen.
 - Reader and cover-preview caches are a bit larger than the DS build to take advantage of 3DS memory headroom.
 - Search uses the 3DS software keyboard instead of the DS on-screen keyboard.
 - The DS project remains untouched in [`EbookReaderForDS/`](/home/rena/Work/NDS/EbookReaderForDS).

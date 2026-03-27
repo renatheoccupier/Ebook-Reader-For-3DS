@@ -55,7 +55,7 @@ u32 bookmarkMenuListFont()
 
 int bookmarkStatusTop()
 {
-	return renderer::screenTextHeight(top_scr) - buttonFontSize * 3 / 2;
+	return screens::layoutY() - buttonFontSize * 3 / 2;
 }
 
 int bookmarkProgressBottom()
@@ -232,89 +232,6 @@ string progressLabel(u32 parag_num, u32 total)
 	const u32 percent = (total > 1u) ? (100u * parag_num) / (total - 1u) : 0u;
 	sprintf(buf, "%3lu%%", (unsigned long)percent);
 	return buf;
-}
-
-string themeLabel()
-{
-	if(settings::lowLightMode()) return string("Low-light");
-	return settings::nightMode() ? kThemeNight : kThemePaper;
-}
-
-string screenModeLabel()
-{
-	switch(settings::scrConf) {
-		case scTop: return string("Top");
-		case scBottom: return string("Bottom");
-		default: return string("Dual");
-	}
-}
-
-string layoutLabel()
-{
-	switch(settings::layout) {
-		case d90: return string("90");
-		case d180: return string("180");
-		case d270: return string("270");
-		default: return string("0");
-	}
-}
-
-void drawOverlayTextBlock(int x, int y, int width, const string& text, u32 fontSize, u32 maxLines)
-{
-	const vector<string> lines = wrapListText(text, width, fontSize, maxLines);
-	for(u32 i = 0; i < lines.size(); ++i) {
-		const int baseline = y + fontSize - 1 + i * (fontSize + 2);
-		renderer::printStr(eUtf8, top_scr, x, baseline, lines[i], 0, 0, fontSize);
-	}
-}
-
-void drawTopContextOverlay(const string& bookTitle, const string& modeTitle, const string& detailText, const string& summaryText, const string& footerText)
-{
-	const int width = renderer::screenTextWidth(top_scr) - 1;
-	const int clockTop = bookmarkStatusTop();
-	const int left = 10;
-	const int right = width - 10;
-	const bool portrait = width < 300;
-	const int headerY2 = 32;
-	const int footerY1 = clockTop - 28;
-	const int footerY2 = clockTop - 4;
-
-	renderer::fillRect(0, 0, width, headerY2, Blend(28), top_scr);
-	renderer::rect(left, 4, right, headerY2, top_scr);
-	renderer::printStr(eUtf8, top_scr, left + 8, 18, ellipsizedSlice(bookTitle, 0, right - left - 96, 14), 0, 0, 14);
-	renderer::printStr(eUtf8, top_scr, right - renderer::strWidth(eUtf8, modeTitle, 0, 0, 10) - 8, 18, modeTitle, 0, 0, 10);
-
-	if(!portrait) {
-		const int cardY1 = clockTop - 70;
-		const int cardY2 = clockTop - 34;
-		const int detailX2 = width - 118;
-		const int summaryX1 = detailX2 + 8;
-		renderer::fillRect(left, cardY1, detailX2, cardY2, Blend(18), top_scr);
-		renderer::rect(left, cardY1, detailX2, cardY2, top_scr);
-		renderer::fillRect(summaryX1, cardY1, right, cardY2, Blend(18), top_scr);
-		renderer::rect(summaryX1, cardY1, right, cardY2, top_scr);
-		drawOverlayTextBlock(left + 8, cardY1 + 8, detailX2 - left - 16, detailText, 10, 2);
-		drawOverlayTextBlock(summaryX1 + 8, cardY1 + 8, right - summaryX1 - 16, summaryText, 10, 2);
-	}
-	else {
-		const int detailY1 = clockTop - 104;
-		const int detailY2 = detailY1 + 32;
-		const int summaryY1 = detailY2 + 8;
-		const int summaryY2 = summaryY1 + 24;
-		renderer::fillRect(left, detailY1, right, detailY2, Blend(18), top_scr);
-		renderer::rect(left, detailY1, right, detailY2, top_scr);
-		renderer::fillRect(left, summaryY1, right, summaryY2, Blend(18), top_scr);
-		renderer::rect(left, summaryY1, right, summaryY2, top_scr);
-		drawOverlayTextBlock(left + 8, detailY1 + 6, right - left - 16, detailText, 10, 2);
-		drawOverlayTextBlock(left + 8, summaryY1 + 5, right - left - 16, summaryText, 10, 1);
-	}
-
-	if(!footerText.empty()) {
-		renderer::fillRect(left, footerY1, right, footerY2, Blend(28), top_scr);
-		renderer::rect(left, footerY1, right, footerY2, top_scr);
-		drawOverlayTextBlock(left + 8, footerY1 + 4, right - left - 16, footerText, 10, 1);
-	}
-	renderer::printClock(top_scr, true);
 }
 
 int lineScrollForwardKey()
@@ -907,31 +824,6 @@ void Book :: drawBookmarkMenu()
 		renderer::printStr(eUtf8, bottom_scr, listRight - renderer::strWidth(eUtf8, "0", 0, 0, itemFont) - 12, kListY1 + rowHeight + itemFont / 2, "0", 0, 0, itemFont);
 	}
 
-	string detailText;
-	if(0 == totalItems) {
-		detailText = showContents
-			? string("No contents entries were found for this book.")
-			: string("No bookmarks saved yet. Use Set to store the current page.");
-	}
-	else {
-		const u32 visibleIndex = bookmarkCursor - *activeScroll;
-		if(visibleIndex < bookmarkTargets.size()) {
-			const bookmark target = bookmarkTargets[visibleIndex];
-			const string label = showContents
-				? tocEntries[bookmarkCursor].title
-				: paragraphMenuLabel(target.parag_num);
-			detailText = label.empty() ? string("Untitled entry") : label;
-		}
-	}
-	if(detailText.empty())
-		detailText = showContents ? string("Open a chapter entry from the list.") : string("Pick a bookmark entry from the list.");
-
-	char countBuf[40];
-	sprintf(countBuf, "%lu items", (unsigned long)totalItems);
-	const string summaryText = progressLabel(current_page.parag_num, total_paragraths()) + " | " +
-		screenModeLabel() + " | " + countBuf;
-	drawTopContextOverlay(noPath(bookFile), showContents ? string("Contents") : string("Bookmarks"), detailText, summaryText, string());
-
 	if(*activeScroll > 0) listUp.draw();
 	if(*activeScroll + bookmarkVisible < totalItems) listDown.draw();
 
@@ -953,6 +845,12 @@ bool Book :: menu()
 		scanKeys();
 		int down = keysDown();
 		if(down & rKey(rDown)) break;
+		if(down & rKey(rLeft)) {
+			if(menuGrid.prevPage()) continue;
+		}
+		else if(down & rKey(rRight)) {
+			if(menuGrid.nextPage()) continue;
+		}
 		
 		if(!(down & KEY_TOUCH)) continue;
 		
@@ -970,10 +868,6 @@ bool Book :: menu()
 		else if(SAY(close) == t) {
 			exitBook = true;
 			break;
-		}
-		else if(SAY(light) == t) {
-			cycleBacklight();
-			settingsDirty = true;
 		}
 		else if(SAY(invert) == t) {
 			settings::setLowLightMode(!settings::lowLightMode());
@@ -1107,7 +1001,6 @@ void Book :: drawMenu(bool recache)
 	->push(SAY(gamma), 0 , true)
 	->push(SAY(pbar))
 	->push(SAY(screens))
-	->push(SAY(light))
 	->push(SAY(size), 0 , true)
 	->push(SAY(font))
 	->push(SAY(style))
@@ -1117,15 +1010,6 @@ void Book :: drawMenu(bool recache)
 	->push(SAY(sharp))
 	->push(SAY(language));
 	draw_page(true, recache);
-	{
-		char fontBuf[16];
-		sprintf(fontBuf, "Font %d", settings::font_size);
-		const string detailText = screenModeLabel() + " screen mode. " + themeLabel() + " theme. " + fontBuf + ".";
-		const string summaryText = progressLabel(current_page.parag_num, total_paragraths()) +
-			" | rot " + layoutLabel() + " | " + (settings::justify ? string("J on") : string("J off"));
-		drawTopContextOverlay(noPath(bookFile), string("Reading Settings"), detailText, summaryText,
-			string("Tap a tile to change it. Down or B closes the settings panel."));
-	}
 	renderer::setTopScreenMirror(false);
 	renderer::clearScreens(settings::bgCol, bottom_scr);
 	menuGrid.draw();

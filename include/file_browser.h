@@ -8,11 +8,11 @@ typedef std::pair<entity, button> fbutton;
 struct file_browser
 {
 	file_browser() : previewWidth(0), previewHeight(0), previewHasImage(false), previewPending(false), previewDelayFrames(0),
-		promptActive(false), pos(0), cursor(0), num(0) {}
+		promptActive(false), scrollbarFrames(0), pos(0), cursor(0), num(0) {}
 	string run();
 private:
-	void cd(), upd();
-	u16 draw();
+	void cd(), upd(bool refreshScrollbar = true);
+	u16 draw(bool showScrollbar = true);
 	void resetPreview();
 	void showPreview(const string& file_name);
 	void drawPreview();
@@ -31,6 +31,7 @@ private:
 	bool previewHasImage, previewPending;
 	int previewDelayFrames;
 	bool promptActive;
+	int scrollbarFrames;
 	button promptOpen, promptKeep;
 	scrollbar sbar;
 	int pos;

@@ -199,18 +199,8 @@ void grid :: print(const string* targ, string mess)
 
 const string* grid :: update()
 {
-	if(more.touched() && iter + 9 < cells.size()) {
-		iter += 9;
-		renderer::clearScreens(settings::bgCol, bottom_scr);
-		draw();
-		return 0;
-	}
-	if(less.touched() && iter > 0) {
-		iter -= (iter >= 9) ? 9 : iter;
-		renderer::clearScreens(settings::bgCol, bottom_scr);
-		draw();
-		return 0;
-	}
+	if(more.touched() && nextPage()) return 0;
+	if(less.touched() && prevPage()) return 0;
 	
 	for(u32 i = iter; i < cells.size() && i < iter + 9; i++)
 		if(cells[i].touched()) {
@@ -218,6 +208,24 @@ const string* grid :: update()
 			return strPtrs[i];
 		}
 	return 0;
+}
+
+bool grid :: nextPage()
+{
+	if(iter + 9 >= cells.size()) return false;
+	iter += 9;
+	renderer::clearScreens(settings::bgCol, bottom_scr);
+	draw();
+	return true;
+}
+
+bool grid :: prevPage()
+{
+	if(0 == iter) return false;
+	iter -= (iter >= 9) ? 9 : iter;
+	renderer::clearScreens(settings::bgCol, bottom_scr);
+	draw();
+	return true;
 }
 
 void grid :: draw()

@@ -5,6 +5,9 @@
 #include "file_browser.h"
 #include "utf8.h"
 
+#include <png.h>
+
+#include <cstring>
 #include <dirent.h>
 #include <fstream>
 #include <vector>
@@ -20,6 +23,10 @@ const string kMenuTitle("EBook Reader");
 const string kMenuSubtitle("Nintendo 3DS EPUB Library");
 vector<button> gMenuButtons;
 vector<const string*> gMenuActions;
+vector<u8> gMenuArtRgba;
+u32 gMenuArtWidth = 0;
+u32 gMenuArtHeight = 0;
+bool gMenuArtTried = false;
 
 void waitForInputRelease()
 {
@@ -30,9 +37,89 @@ void waitForInputRelease()
 	}
 }
 
-int statusTop()
+u8 expand5(u8 value)
 {
-	return renderer::screenTextHeight(top_scr) - buttonFontSize * 3 / 2;
+	return (value << 3) | (value >> 2);
+}
+
+bool loadMenuArtFile(const string& path)
+{
+	png_image image;
+	std::memset(&image, 0, sizeof(image));
+	image.version = PNG_IMAGE_VERSION;
+	if(!png_image_begin_read_from_file(&image, path.c_str()))
+		return false;
+
+	image.format = PNG_FORMAT_RGBA;
+	vector<png_byte> rgba(PNG_IMAGE_SIZE(image));
+	const bool ok = 0 != png_image_finish_read(&image, NULL, rgba.data(), 0, NULL);
+	const u32 width = image.width;
+	const u32 height = image.height;
+	png_image_free(&image);
+	if(!ok) return false;
+
+	gMenuArtRgba.assign(rgba.begin(), rgba.end());
+	gMenuArtWidth = width;
+	gMenuArtHeight = height;
+	return true;
+}
+
+bool ensureMenuArtLoaded()
+{
+	if(gMenuArtTried) return !gMenuArtRgba.empty();
+	gMenuArtTried = true;
+	return loadMenuArtFile(appDataPath() + "/rena.png") || loadMenuArtFile("data/rena.png");
+}
+
+u16 blendMenuArtPixel(u32 index)
+{
+	const u8 r = gMenuArtRgba[index];
+	const u8 g = gMenuArtRgba[index + 1];
+	const u8 b = gMenuArtRgba[index + 2];
+	const u8 a = gMenuArtRgba[index + 3];
+	if(a == 255)
+		return RGB15(r >> 3, g >> 3, b >> 3) | BIT(15);
+
+	const u8 bgR = expand5(settings::bgCol.R);
+	const u8 bgG = expand5(settings::bgCol.G);
+	const u8 bgB = expand5(settings::bgCol.B);
+	const u8 outR = (r * a + bgR * (255 - a)) / 255;
+	const u8 outG = (g * a + bgG * (255 - a)) / 255;
+	const u8 outB = (b * a + bgB * (255 - a)) / 255;
+	return RGB15(outR >> 3, outG >> 3, outB >> 3) | BIT(15);
+}
+
+bool drawMenuArt(int x1, int y1, int x2, int y2)
+{
+	if(!ensureMenuArtLoaded() || gMenuArtRgba.empty() || gMenuArtWidth == 0 || gMenuArtHeight == 0)
+		return false;
+
+	const int boxW = x2 - x1 + 1;
+	const int boxH = y2 - y1 + 1;
+	if(boxW <= 0 || boxH <= 0) return false;
+
+	const double scaleX = double(boxW) / double(gMenuArtWidth);
+	const double scaleY = double(boxH) / double(gMenuArtHeight);
+	const double scale = MIN(scaleX, scaleY);
+	if(scale <= 0.0) return false;
+
+	const int drawW = MAX(1, int(gMenuArtWidth * scale));
+	const int drawH = MAX(1, int(gMenuArtHeight * scale));
+	const int drawX = x1 + (boxW - drawW) / 2;
+	const int drawY = y1 + (boxH - drawH) / 2;
+	renderer::fillRect(x1, y1, x2, y2, Blend(10), top_scr);
+	renderer::rect(x1, y1, x2, y2, top_scr);
+	for(int y = 0; y < drawH; ++y) {
+		const u32 srcY = u32(y) * gMenuArtHeight / drawH;
+		for(int x = 0; x < drawW; ++x) {
+			const u32 srcX = u32(x) * gMenuArtWidth / drawW;
+			const u32 index = 4u * (srcY * gMenuArtWidth + srcX);
+			if(index + 3u >= gMenuArtRgba.size()) continue;
+			if(gMenuArtRgba[index + 3u] < 8u) continue;
+			renderer::putPixel(top_scr, drawX + x, drawY + y, blendMenuArtPixel(index));
+		}
+	}
+	return true;
 }
 
 void drawCardTitle(int x, int y, const string& title)
@@ -90,38 +177,6 @@ void drawCardValue(int x, int y, int width, const string& value, u32 fontSize, u
 	}
 }
 
-string compactValue(const string& text, int width, u32 fontSize)
-{
-	if(text.empty()) return string("None");
-	if(renderer::strWidth(eUtf8, text, 0, 0, fontSize) <= width) return text;
-	return ellipsizedSlice(text, 0, width, fontSize);
-}
-
-string themeLabel()
-{
-	if(settings::lowLightMode()) return string("Low-light");
-	return settings::nightMode() ? string("Night") : string("Paper");
-}
-
-string screenModeLabel()
-{
-	switch(settings::scrConf) {
-		case scTop: return string("Top screen");
-		case scBottom: return string("Bottom screen");
-		default: return string("Dual screen");
-	}
-}
-
-string layoutLabel()
-{
-	switch(gReadingLayout) {
-		case d90: return string("Rotated 90");
-		case d180: return string("Rotated 180");
-		case d270: return string("Rotated 270");
-		default: return string("Standard");
-	}
-}
-
 void drawMenuButtonStrip()
 {
 	gMenuButtons.clear();
@@ -131,108 +186,83 @@ void drawMenuButtonStrip()
 	const bool portrait = screens::layoutY() > screens::layoutX();
 	const int width = screens::layoutX();
 	const int height = screens::layoutY();
-	const int buttonWidth = portrait ? width - 22 : MIN(width - 28, 220);
-	const int buttonHeight = portrait ? 56 : 48;
-	const int gap = 10;
-	const int count = book_ok(settings::recent_book) ? 3 : 2;
-	const int left = (width - buttonWidth) / 2;
-	const int totalHeight = count * buttonHeight + (count - 1) * gap;
-	int top = portrait ? height - totalHeight - 14 : MAX(18, (height - totalHeight) / 2);
+	const bool canResume = book_ok(settings::recent_book);
+	const int buttonHeight = portrait ? 56 : 52;
+	const int gap = 12;
 
-	if(book_ok(settings::recent_book)) {
+	if(canResume && !portrait) {
+		const int buttonWidth = MIN(150, (width - 34) / 2);
+		const int left = (width - (buttonWidth * 2 + gap)) / 2;
+		const int top = MAX(24, height - buttonHeight - 36);
 		button resume("Resume", left, top, left + buttonWidth, top + buttonHeight, 16);
 		resume.enableAutoFit(12);
 		gMenuButtons.push_back(resume);
 		gMenuActions.push_back(SAY(resume));
-		top += buttonHeight + gap;
+		button files("Files", left + buttonWidth + gap, top, left + buttonWidth * 2 + gap, top + buttonHeight, 16);
+		files.enableAutoFit(12);
+		gMenuButtons.push_back(files);
+		gMenuActions.push_back(SAY(files));
 	}
+	else {
+		const int count = canResume ? 2 : 1;
+		const int sidePad = portrait ? 40 : 20;
+		const int buttonWidth = portrait ? MAX(120, width - sidePad * 2) : MIN(width - 40, 220);
+		const int left = MAX(sidePad, (width - buttonWidth) / 2);
+		const int totalHeight = count * buttonHeight + (count - 1) * gap;
+		int top = portrait ? MAX(22, (height - totalHeight) / 2 - 12) : MAX(24, height - totalHeight - 28);
 
-	button files("Files", left, top, left + buttonWidth, top + buttonHeight, 16);
-	files.enableAutoFit(12);
-	gMenuButtons.push_back(files);
-	gMenuActions.push_back(SAY(files));
-	top += buttonHeight + gap;
+		if(canResume) {
+			button resume("Resume", left, top, left + buttonWidth, top + buttonHeight, 16);
+			resume.enableAutoFit(12);
+			gMenuButtons.push_back(resume);
+			gMenuActions.push_back(SAY(resume));
+			top += buttonHeight + gap;
+		}
 
-	button light("Backlight", left, top, left + buttonWidth, top + buttonHeight, 16);
-	light.enableAutoFit(12);
-	gMenuButtons.push_back(light);
-	gMenuActions.push_back(SAY(light));
+		button files("Files", left, top, left + buttonWidth, top + buttonHeight, 16);
+		files.enableAutoFit(12);
+		gMenuButtons.push_back(files);
+		gMenuActions.push_back(SAY(files));
+	}
 
 	for(u32 i = 0; i < gMenuButtons.size(); ++i)
 		gMenuButtons[i].draw();
+	renderer::printClock(bottom_scr, true);
 }
 
 void drawMenuTopScreen()
 {
 	const int width = renderer::screenTextWidth(top_scr) - 1;
 	const int height = renderer::screenTextHeight(top_scr) - 1;
-	const int clockTop = statusTop();
 	const int left = 12;
 	const int right = width - 12;
 	const bool portrait = width < 300;
 	const bool canResume = !settings::recent_book.empty() && book_ok(settings::recent_book);
+	const string recentLabel = canResume
+		? noExt(noPath(settings::recent_book))
+		: string("No recent book yet. Open Files on the bottom screen to browse your EPUB library.");
 
 	renderer::clearScreens(settings::bgCol, top_scr);
-	renderer::fillRect(0, 0, width, 50, Blend(28), top_scr);
-	renderer::fillRect(0, 50, width, 52, Blend(72), top_scr);
-	renderer::printStr(eUtf8, top_scr, 16, 24, kMenuTitle, 0, 0, 25);
-	renderer::printStr(eUtf8, top_scr, 18, 42, kMenuSubtitle, 0, 0, 11);
+	renderer::fillRect(0, 0, width, portrait ? 42 : 50, Blend(28), top_scr);
+	renderer::fillRect(0, portrait ? 42 : 50, width, portrait ? 44 : 52, Blend(72), top_scr);
+	renderer::printStr(eUtf8, top_scr, 16, portrait ? 22 : 24, kMenuTitle, 0, 0, portrait ? 22 : 25);
+	renderer::printStr(eUtf8, top_scr, 18, portrait ? 38 : 42, kMenuSubtitle, 0, 0, 11);
 
 	if(!portrait) {
-		const int gap = 10;
-		const int heroX2 = 230;
-		const int infoX1 = heroX2 + gap;
-		const int infoX2 = right;
-		renderer::fillRect(left, 64, heroX2, 122, Blend(18), top_scr);
-		renderer::rect(left, 64, heroX2, 122, top_scr);
-		drawCardTitle(left + 10, 80, canResume ? "Recent" : "Start");
-		drawCardValue(left + 10, 100, heroX2 - left - 20, canResume
-			? noPath(settings::recent_book)
-			: string("Use Files to browse sdmc:/books/ or the app folder."), 12, 2);
-
-		renderer::rect(infoX1, 64, infoX2, 92, top_scr);
-		drawCardTitle(infoX1 + 8, 80, "Library");
-		renderer::printStr(eUtf8, top_scr, infoX1 + 8, 90, compactValue("sdmc:/books/", infoX2 - infoX1 - 16, 10), 0, 0, 10);
-
-		renderer::rect(infoX1, 100, infoX2, 122, top_scr);
-		renderer::printStr(eUtf8, top_scr, infoX1 + 8, 116, compactValue(themeLabel() + " | " + layoutLabel(), infoX2 - infoX1 - 16, 10), 0, 0, 10);
-
-		renderer::rect(left, 132, right, 170, top_scr);
-		drawCardTitle(left + 10, 148, "Mode");
-		renderer::printStr(eUtf8, top_scr, left + 10, 164, compactValue(screenModeLabel(), right - left - 20, 11), 0, 0, 11);
-
-		renderer::fillRect(left, clockTop - 28, right, clockTop - 4, Blend(28), top_scr);
-		renderer::rect(left, clockTop - 28, right, clockTop - 4, top_scr);
-		renderer::printStr(eUtf8, top_scr, left + 8, clockTop - 12,
-			canResume ? "Tap Resume or Files below. Start exits." : "Tap Files below to open the browser. Start exits.",
-			0, 0, 10);
+		renderer::fillRect(left, 70, right, height - 16, Blend(18), top_scr);
+		renderer::rect(left, 70, right, height - 16, top_scr);
+		const bool hasArt = drawMenuArt(right - 134, 78, right - 18, height - 24);
+		const int textRight = hasArt ? right - 148 : right - 12;
+		drawCardTitle(left + 12, 92, "Recent Book");
+		drawCardValue(left + 12, 118, textRight - left, recentLabel, canResume ? 16 : 12, canResume ? 4 : 5);
 	}
 	else {
-		int cardY = 64;
-		const int cardH = 54;
-		renderer::fillRect(left, cardY, right, cardY + cardH, Blend(18), top_scr);
-		renderer::rect(left, cardY, right, cardY + cardH, top_scr);
-		drawCardTitle(left + 10, cardY + 16, canResume ? "Recent Book" : "Start Reading");
-		drawCardValue(left + 10, cardY + 36, right - left - 20, canResume
-			? noPath(settings::recent_book)
-			: string("Open Files to browse your EPUB library."), 11, 2);
-		cardY += cardH + 10;
-
-		renderer::rect(left, cardY, right, cardY + 40, top_scr);
-		drawCardTitle(left + 10, cardY + 16, "Library");
-		renderer::printStr(eUtf8, top_scr, left + 10, cardY + 34, compactValue("sdmc:/books/", right - left - 20, 10), 0, 0, 10);
-		cardY += 50;
-
-		renderer::rect(left, cardY, right, cardY + 40, top_scr);
-		drawCardTitle(left + 10, cardY + 16, "Reader");
-		renderer::printStr(eUtf8, top_scr, left + 10, cardY + 34, compactValue(screenModeLabel() + " | " + themeLabel(), right - left - 20, 10), 0, 0, 10);
-		cardY += 50;
-
-		renderer::rect(left, cardY, right, MIN(height - 40, cardY + 48), top_scr);
-		drawCardTitle(left + 10, cardY + 16, "Layout");
-		renderer::printStr(eUtf8, top_scr, left + 10, cardY + 34, compactValue(layoutLabel(), right - left - 20, 10), 0, 0, 10);
+		renderer::fillRect(left, 60, right, height - 18, Blend(18), top_scr);
+		renderer::rect(left, 60, right, height - 18, top_scr);
+		drawCardTitle(left + 12, 82, "Recent Book");
+		drawCardValue(left + 12, 112, right - left - 24, recentLabel, canResume ? 11 : 10, canResume ? 3 : 4);
+		drawMenuArt(left + 16, 164, right - 16, height - 30);
 	}
-	renderer::printClock(top_scr, true);
 }
 
 } // namespace
@@ -333,6 +363,7 @@ int main(int argc, char* argv[])
 	drawMenu();
 	while(pumpPowerManagement()) {
 		swiWaitForVBlank();
+		renderer::printClock(bottom_scr);
 		scanKeys();
 		const int down = keysDown();
 		if(down & KEY_START) break;
@@ -349,7 +380,6 @@ int main(int argc, char* argv[])
 				waitForInputRelease();
 				browseLoop();
 			}
-			else if(SAY(light) == t) cycleBacklight();
 			else if(SAY(resume) == t && book_ok(settings::recent_book)) {
 				waitForInputRelease();
 				if(appShouldExit()) break;

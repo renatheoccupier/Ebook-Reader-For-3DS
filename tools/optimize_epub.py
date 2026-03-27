@@ -10,6 +10,7 @@ import pathlib
 import shutil
 import sys
 import tempfile
+import xml.etree.ElementTree as ET
 import zipfile
 
 
@@ -20,6 +21,19 @@ DEFAULT_MIN_QUALITY = 25
 DEFAULT_MIN_PNG_COLORS = 16
 DEFAULT_QUALITY_STEP = 10
 DEFAULT_SCALE_STEP = 0.85
+THREE_DS_MAX_WIDTH = 400
+THREE_DS_MAX_HEIGHT = 240
+THREE_DS_JPEG_QUALITY = 65
+THREE_DS_PNG_COLORS = 128
+DS_MAX_WIDTH = 256
+DS_MAX_HEIGHT = 192
+DS_JPEG_QUALITY = 60
+DS_PNG_COLORS = 64
+THREE_DS_MAX_CHAPTER_BYTES = 6 * 1024 * 1024
+THREE_DS_MAX_TOTAL_CHAPTER_BYTES = 24 * 1024 * 1024
+CONTAINER_NS = "urn:oasis:names:tc:opendocument:xmlns:container"
+OPF_NS = "http://www.idpf.org/2007/opf"
+SPINE_MEDIA_TYPES = {"application/xhtml+xml", "text/html"}
 
 
 @dataclass(frozen=True)
@@ -44,6 +58,14 @@ class FileResult:
     logs: list[str]
     rewritten: bool
     failed: bool = False
+
+
+@dataclass(frozen=True)
+class Preset:
+    max_width: int
+    max_height: int
+    quality: int
+    png_colors: int | None
 
 
 @lru_cache(maxsize=1)
@@ -214,6 +236,14 @@ def normalize_path(path):
     return pathlib.Path(path).resolve(strict=False)
 
 
+def normalize_zip_path(path):
+    return pathlib.PurePosixPath(path).as_posix()
+
+
+def resolve_zip_href(base_path, href):
+    return normalize_zip_path(str(pathlib.PurePosixPath(base_path).parent / href))
+
+
 def is_relative_to(path, base):
     try:
         path.relative_to(base)
@@ -266,6 +296,92 @@ def format_size(size_bytes):
     return f"{size_bytes} B"
 
 
+def preset_settings(name):
+    if name == "ds":
+        return Preset(
+            max_width=DS_MAX_WIDTH,
+            max_height=DS_MAX_HEIGHT,
+            quality=DS_JPEG_QUALITY,
+            png_colors=DS_PNG_COLORS,
+        )
+    return Preset(
+        max_width=THREE_DS_MAX_WIDTH,
+        max_height=THREE_DS_MAX_HEIGHT,
+        quality=THREE_DS_JPEG_QUALITY,
+        png_colors=THREE_DS_PNG_COLORS,
+    )
+
+
+def analyze_3ds_compatibility(epub_path):
+    try:
+        with zipfile.ZipFile(epub_path, "r") as zf:
+            container = ET.fromstring(zf.read("META-INF/container.xml"))
+            rootfile = container.find(f".//{{{CONTAINER_NS}}}rootfile")
+            if rootfile is None or not rootfile.get("full-path"):
+                return ["3DS check skipped: container.xml is missing the OPF rootfile"]
+
+            opf_path = normalize_zip_path(rootfile.get("full-path"))
+            package = ET.fromstring(zf.read(opf_path))
+            manifest = package.find(f"{{{OPF_NS}}}manifest")
+            spine = package.find(f"{{{OPF_NS}}}spine")
+            if manifest is None or spine is None:
+                return ["3DS check skipped: OPF manifest or spine is missing"]
+
+            manifest_items = {}
+            for item in manifest.findall(f"{{{OPF_NS}}}item"):
+                item_id = item.get("id")
+                href = item.get("href")
+                media_type = item.get("media-type")
+                if not item_id or not href:
+                    continue
+                manifest_items[item_id] = (
+                    resolve_zip_href(opf_path, href),
+                    media_type or "",
+                )
+
+            chapter_sizes = []
+            total_size = 0
+            for itemref in spine.findall(f"{{{OPF_NS}}}itemref"):
+                item_id = itemref.get("idref")
+                if not item_id or item_id not in manifest_items:
+                    continue
+                zip_path, media_type = manifest_items[item_id]
+                suffix = pathlib.PurePosixPath(zip_path).suffix.lower()
+                if media_type not in SPINE_MEDIA_TYPES and suffix not in {".xhtml", ".html", ".htm"}:
+                    continue
+                try:
+                    size = zf.getinfo(zip_path).file_size
+                except KeyError:
+                    continue
+                chapter_sizes.append((zip_path, size))
+                total_size += size
+    except Exception as exc:
+        return [f"3DS check skipped: {exc}"]
+
+    if not chapter_sizes:
+        return ["3DS text budget: no spine XHTML/HTML entries found"]
+
+    largest_path, largest_size = max(chapter_sizes, key=lambda item: item[1])
+    logs = [
+        "3DS text budget: "
+        f"{format_size(total_size)} total spine text, largest chapter {format_size(largest_size)} "
+        f"({largest_path})"
+    ]
+    if largest_size > THREE_DS_MAX_CHAPTER_BYTES:
+        logs.append(
+            "warning: largest chapter exceeds the 3DS safe limit "
+            f"({format_size(largest_size)} > {format_size(THREE_DS_MAX_CHAPTER_BYTES)}). "
+            "Split this EPUB before loading it on the console."
+        )
+    if total_size > THREE_DS_MAX_TOTAL_CHAPTER_BYTES:
+        logs.append(
+            "warning: total spine text exceeds the 3DS parser limit "
+            f"({format_size(total_size)} > {format_size(THREE_DS_MAX_TOTAL_CHAPTER_BYTES)}). "
+            "Use split_epub.py or trim appendices before copying it to the SD card."
+        )
+    return logs
+
+
 def describe_settings(settings):
     description = [
         f"{settings.max_width}x{settings.max_height}",
@@ -306,23 +422,28 @@ def next_settings(settings):
 
 
 def build_settings(args):
+    preset = preset_settings(args.preset)
     max_output_bytes = None
     if args.max_output_mb is not None:
         max_output_bytes = int(args.max_output_mb * 1024 * 1024)
 
-    min_width = min(args.max_width, max(64, int(round(args.max_width * 0.6))))
-    min_height = min(args.max_height, max(48, int(round(args.max_height * 0.6))))
+    max_width = args.max_width if args.max_width is not None else preset.max_width
+    max_height = args.max_height if args.max_height is not None else preset.max_height
+    quality = args.quality if args.quality is not None else preset.quality
+    png_colors = args.png_colors if args.png_colors is not None else preset.png_colors
+    min_width = min(max_width, max(64, int(round(max_width * 0.6))))
+    min_height = min(max_height, max(48, int(round(max_height * 0.6))))
 
     return OptimizeSettings(
-        max_width=args.max_width,
-        max_height=args.max_height,
+        max_width=max_width,
+        max_height=max_height,
         grayscale=args.grayscale,
-        quality=args.quality,
-        png_colors=args.png_colors,
+        quality=quality,
+        png_colors=png_colors,
         max_output_bytes=max_output_bytes,
         min_width=min_width,
         min_height=min_height,
-        min_quality=min(args.quality, DEFAULT_MIN_QUALITY),
+        min_quality=min(quality, DEFAULT_MIN_QUALITY),
     )
 
 
@@ -336,13 +457,18 @@ def create_temp_epub(base_path):
         return pathlib.Path(temp_file.name)
 
 
-def optimize_file(source, target, settings):
+def optimize_file(source, target, settings, preset_name):
     source = pathlib.Path(source)
     target = pathlib.Path(target)
     rewritten = same_path(source, target)
     final_target = source if rewritten else target
     if not rewritten:
         final_target.parent.mkdir(parents=True, exist_ok=True)
+
+    def finalize_logs(base_logs):
+        if preset_name == "3ds":
+            return base_logs + analyze_3ds_compatibility(final_target)
+        return base_logs
 
     current_settings = settings
     attempt = 1
@@ -368,6 +494,7 @@ def optimize_file(source, target, settings):
                         f"within size target: {format_size(output_size)} <= "
                         f"{format_size(current_settings.max_output_bytes)}"
                     )
+                logs = finalize_logs(logs)
                 return FileResult(
                     str(source),
                     str(final_target),
@@ -382,6 +509,7 @@ def optimize_file(source, target, settings):
                 temp_path = None
                 logs = attempt_logs + [attempt_summary] + detail_logs
                 logs.append("warning: size target not reached because the EPUB had no optimizable images")
+                logs = finalize_logs(logs)
                 return FileResult(
                     str(source),
                     str(final_target),
@@ -400,6 +528,7 @@ def optimize_file(source, target, settings):
                     f"warning: could not reach target size {format_size(current_settings.max_output_bytes)}; "
                     f"kept smallest generated file"
                 )
+                logs = finalize_logs(logs)
                 return FileResult(
                     str(source),
                     str(final_target),
@@ -490,10 +619,11 @@ def build_jobs(args):
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Downscale EPUB images for DS/DSi-sized screens.",
+        description="Optimize EPUB images for DS or 3DS screens and check 3DS parser budgets.",
         epilog=(
             "examples:\n"
-            "  optimize_epub.py book.epub book-optimized.epub --grayscale\n"
+            "  optimize_epub.py book.epub book-3ds.epub\n"
+            "  optimize_epub.py book.epub book-ds.epub --preset ds --grayscale\n"
             "  optimize_epub.py --input-dir books --output-dir optimized --workers 4\n"
             "  optimize_epub.py --input-dir books --in-place\n"
             "  optimize_epub.py book.epub book-small.epub --max-output-mb 1"
@@ -505,10 +635,16 @@ def parse_args():
     parser.add_argument("--input-dir", help="source folder scanned recursively for .epub files")
     parser.add_argument("--output-dir", help="output folder for optimized EPUB files")
     parser.add_argument("--in-place", action="store_true", help="rewrite the source EPUB")
-    parser.add_argument("--max-width", type=positive_int, default=250, help="maximum image width inside the EPUB")
-    parser.add_argument("--max-height", type=positive_int, default=180, help="maximum image height inside the EPUB")
+    parser.add_argument(
+        "--preset",
+        choices=("3ds", "ds"),
+        default="3ds",
+        help="default tuning profile for image size and quality (default: %(default)s)",
+    )
+    parser.add_argument("--max-width", type=positive_int, help="maximum image width inside the EPUB")
+    parser.add_argument("--max-height", type=positive_int, help="maximum image height inside the EPUB")
     parser.add_argument("--grayscale", action="store_true", help="store optimized images in grayscale")
-    parser.add_argument("--quality", type=jpeg_quality, default=60, help="JPEG quality for JPEG images")
+    parser.add_argument("--quality", type=jpeg_quality, help="JPEG quality for JPEG images")
     parser.add_argument(
         "--png-colors",
         type=png_color_count,
@@ -543,6 +679,7 @@ def main():
                     str(source),
                     str(target),
                     settings,
+                    args.preset,
                 ): (source, target)
                 for source, target in jobs
             }
@@ -556,6 +693,7 @@ def main():
                 str(source),
                 str(target),
                 settings,
+                args.preset,
             )
             results.append(result)
             print_result(result)
