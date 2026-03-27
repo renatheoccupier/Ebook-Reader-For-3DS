@@ -672,8 +672,9 @@ void TFlashClock::show(scr_id scr)
 
 void TFlashClock::hide()
 {
-	if(++frames > 60 && _scr != 66) {
+	if(++frames > 30 && _scr != 66) {
 		memcpy(bmp[_scr], gFlashBuffer, sizeof(gFlashBuffer));
+		markDirty();
 		_scr = 66;
 	}
 }

@@ -217,11 +217,12 @@ struct toc_link
 {
 	string title;
 	string href;
+	u16 depth;
 	toc_link() {}
-	toc_link(const string& t, const string& h) : title(t), href(h) {}
+	toc_link(const string& t, const string& h, u16 d = 0) : title(t), href(h), depth(d) {}
 };
 
-void collectHtmlTocItems(const pugi::xml_node& list, const string& base, vector<toc_link>& out)
+void collectHtmlTocItems(const pugi::xml_node& list, const string& base, vector<toc_link>& out, u16 depth)
 {
 	for(pugi::xml_node item = list.first_child(); item; item = item.next_sibling()) {
 		if(strcmp(item.name(), "li")) continue;
@@ -231,10 +232,10 @@ void collectHtmlTocItems(const pugi::xml_node& list, const string& base, vector<
 				const string href = normalizeZipHref(base, child.attribute("href").value());
 				const string title = nodeText(child);
 				if(!href.empty() && !title.empty())
-					out.push_back(toc_link(title, href));
+					out.push_back(toc_link(title, href, depth));
 			}
 			if(!strcmp(child.name(), "ol"))
-				collectHtmlTocItems(child, base, out);
+				collectHtmlTocItems(child, base, out, depth + 1u);
 		}
 	}
 }
@@ -247,7 +248,7 @@ bool collectHtmlTocNav(const pugi::xml_node& node, const string& base, vector<to
 		if(containsWord(navType, "toc") || containsWord(plainType, "toc")) {
 			for(pugi::xml_node child = node.first_child(); child; child = child.next_sibling())
 				if(!strcmp(child.name(), "ol"))
-					collectHtmlTocItems(child, base, out);
+					collectHtmlTocItems(child, base, out, 0);
 			return !out.empty();
 		}
 	}
@@ -275,15 +276,15 @@ bool loadHtmlTocLinks(unzFile& zip, const string& toc_file, vector<toc_link>& ou
 	return found && !out.empty();
 }
 
-void collectNcxNavPoints(const pugi::xml_node& node, const string& base, vector<toc_link>& out)
+void collectNcxNavPoints(const pugi::xml_node& node, const string& base, vector<toc_link>& out, u16 depth)
 {
 	for(pugi::xml_node navPoint = node.first_child(); navPoint; navPoint = navPoint.next_sibling()) {
 		if(strcmp(navPoint.name(), "navPoint")) continue;
 		const string href = normalizeZipHref(base, navPoint.child("content").attribute("src").value());
 		const string title = nodeText(navPoint.child("navLabel"));
 		if(!href.empty() && !title.empty())
-			out.push_back(toc_link(title, href));
-		collectNcxNavPoints(navPoint, base, out);
+			out.push_back(toc_link(title, href, depth));
+		collectNcxNavPoints(navPoint, base, out, depth + 1u);
 	}
 }
 
@@ -301,7 +302,7 @@ bool loadNcxTocLinks(unzFile& zip, const string& toc_file, vector<toc_link>& out
 	}
 
 	const pugi::xml_node navMap = findNodeByName(doc, "navMap");
-	if(navMap) collectNcxNavPoints(navMap, dirName(toc_file), out);
+	if(navMap) collectNcxNavPoints(navMap, dirName(toc_file), out, 0);
 	delete[] buf;
 	return !out.empty();
 }
@@ -736,9 +737,10 @@ bool epub_book :: loadTocEntries()
 		if(!found || toc_links[i].title.empty()) continue;
 		if(!tocEntries.empty() &&
 			tocEntries.back().place.parag_num == target &&
-			tocEntries.back().title == toc_links[i].title)
+			tocEntries.back().title == toc_links[i].title &&
+			tocEntries.back().depth == toc_links[i].depth)
 			continue;
-		tocEntries.push_back(toc_entry(target, toc_links[i].title));
+		tocEntries.push_back(toc_entry(target, toc_links[i].title, toc_links[i].depth));
 	}
 
 	return !tocEntries.empty();

@@ -25,7 +25,7 @@ extern "C" {
 namespace
 {
 
-const int kBrowserScrollbarGutter = 24;
+const int kBrowserScrollbarGutter = 8;
 const int kPreviewMargin = 8;
 const int kPreviewTitleFont = 10;
 const int kPreviewTitleLines = 3;
@@ -73,6 +73,11 @@ bool topPreviewPortrait(int width)
 	return width < 300;
 }
 
+bool breakablePreviewChar(char c)
+{
+	return c == ' ' || c == '-' || c == '_' || c == '/' || c == ':';
+}
+
 void previewFrameRect(int width, int bottomLimit, int& x1, int& y1, int& x2, int& y2)
 {
 	x1 = 12;
@@ -83,8 +88,8 @@ void previewFrameRect(int width, int bottomLimit, int& x1, int& y1, int& x2, int
 
 int browserListRight(bool reserveScrollbar)
 {
-	const int gutter = reserveScrollbar ? kBrowserScrollbarGutter : 1;
-	return MAX(40, int(screens::layoutX()) - gutter);
+	(void)reserveScrollbar;
+	return MAX(40, int(screens::layoutX()) - 1);
 }
 
 bool browserNeedsScrollbar(u32 totalEntries)
@@ -211,7 +216,7 @@ vector<string> wrapPreviewText(const string& text, int width, u32 fontSize, u32 
 		}
 
 		u32 breakPos = hardEnd;
-		while(breakPos > start && text[breakPos - 1] != ' ') --breakPos;
+		while(breakPos > start && !breakablePreviewChar(text[breakPos - 1])) --breakPos;
 		u32 lineEnd = hardEnd;
 		u32 nextStart = hardEnd;
 		if(breakPos > start) {
@@ -219,8 +224,8 @@ vector<string> wrapPreviewText(const string& text, int width, u32 fontSize, u32 
 			nextStart = skipSpaces(text, breakPos);
 		}
 		if(lineEnd <= start) {
-			lineEnd = hardEnd;
-			nextStart = hardEnd;
+			lines.push_back(ellipsizedSlice(text, start, width, fontSize));
+			return lines;
 		}
 		lines.push_back(text.substr(start, lineEnd - start));
 		start = skipSpaces(text, nextStart);

@@ -42,6 +42,19 @@ u32 clippedEnd(const string& str, u32 start, int width, u32 fontSize)
 	return advanceChars(str, start, breakat);
 }
 
+string ellipsizedButtonText(const string& str, int width, u32 fontSize)
+{
+	const u32 end = clippedEnd(str, 0, width, fontSize);
+	if(end >= str.size()) return str.substr(0, end);
+
+	const string ellipsis("...");
+	const int ellipsisWidth = renderer::strWidth(eUtf8, ellipsis, 0, 0, fontSize);
+	if(ellipsisWidth >= width) return str.substr(0, end);
+
+	const u32 clipped = clippedEnd(str, 0, width - ellipsisWidth, fontSize);
+	return str.substr(0, clipped) + ellipsis;
+}
+
 u32 marqueeStart(const string& str, int width, u32 fontSize, u32 marqueeStep)
 {
 	const vector<u32> offsets = utf8Offsets(str);
@@ -263,8 +276,8 @@ void button :: draw(u32 marqueeStep)
 	}
 
 	if(!marquee) {
-		const u32 end = clippedEnd(txt, 0, innerWidth, font);
-		printStr(eUtf8, bottom_scr, x1 + 2, baselineY, txt, 0, end, font);
+		const string clipped = ellipsizedButtonText(txt, innerWidth, font);
+		printStr(eUtf8, bottom_scr, x1 + 2, baselineY, clipped, 0, 0, font);
 		return;
 	}
 
@@ -276,7 +289,7 @@ void button :: draw(u32 marqueeStep)
 scrollbar :: scrollbar()
 {
 	using namespace screens;
-	x1 = layoutX() - 20;
+	x1 = layoutX() - 8;
 	y1 = 0;
 	x2 = layoutX();
 	y2 = layoutY();

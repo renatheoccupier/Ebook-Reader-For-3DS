@@ -42,9 +42,10 @@ struct toc_entry
 {
 	bookmark place;
 	string title;
+	u16 depth;
 	toc_entry() {}
-	toc_entry(u32 p, const string& t) : place(p, 0), title(t) {}
-	toc_entry(const bookmark& b, const string& t) : place(b), title(t) {}
+	toc_entry(u32 p, const string& t, u16 d = 0) : place(p, 0), title(t), depth(d) {}
+	toc_entry(const bookmark& b, const string& t, u16 d = 0) : place(b), title(t), depth(d) {}
 };
 
 class Book
@@ -61,6 +62,7 @@ public:
 		bookmarkView = bookmarkViewMarks;
 		bookmarkScroll = 0;
 		tocScroll = 0;
+		tocCursor = 0;
 		bookmarkVisible = 0;
 		bookmarkCursor = 0;
 		marksDirty = false;
@@ -115,6 +117,16 @@ private:
 	void ensureToc();
 	void buildFallbackToc();
 	string paragraphMenuLabel(u32 parag_num);
+	u32 currentTocIndex() const;
+	u32 tocSubtreeEnd(u32 index) const;
+	bool tocHasChildren(u32 index) const;
+	vector<u32> tocAncestors(u32 index) const;
+	void rebuildVisibleTocEntries();
+	void focusCurrentTocEntry();
+	void leaveTocFolder();
+	bool activateTocCursor();
+	string tocFolderLabel() const;
+	string tocRowLabel(u32 index) const;
 	u32 bookmarkTotalItems() const;
 	u32* activeBookmarkScroll();
 	void clampBookmarkCursor();
@@ -130,7 +142,10 @@ private:
 	vector<button> bookmarkRows;
 	vector<bookmark> bookmarkTargets;
 	bookmark_view bookmarkView;
-	u32 bookmarkScroll, tocScroll, bookmarkVisible, bookmarkCursor;
+	vector<u32> tocPath;
+	vector<u32> tocVisibleEntries;
+	vector<u32> tocRowEntries;
+	u32 bookmarkScroll, tocScroll, tocCursor, bookmarkVisible, bookmarkCursor;
 	bool marksDirty;
 	int marksSaveFrames;
 	vector<ParagraphCacheEntry> paragraphCache;

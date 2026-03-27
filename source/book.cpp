@@ -3,6 +3,7 @@
 #include "renderer.h"
 #include "controls.h"
 #include "utf8.h"
+#include <algorithm>
 #include <fstream>
 
 #include <stdio.h>
@@ -110,6 +111,11 @@ u32 trimSpaces(const string& text, u32 start, u32 end)
 	return end;
 }
 
+bool breakableListChar(char c)
+{
+	return c == ' ' || c == '-' || c == '_' || c == '/' || c == ':';
+}
+
 string ellipsizedSlice(const string& text, u32 start, int width, u32 fontSize)
 {
 	const u32 end = clippedUtf8End(text, start, width, fontSize);
@@ -141,7 +147,7 @@ vector<string> wrapListText(const string& text, int width, u32 fontSize, u32 max
 		}
 
 		u32 breakPos = hardEnd;
-		while(breakPos > start && text[breakPos - 1] != ' ') --breakPos;
+		while(breakPos > start && !breakableListChar(text[breakPos - 1])) --breakPos;
 		u32 lineEnd = hardEnd;
 		u32 nextStart = hardEnd;
 		if(breakPos > start) {
@@ -149,8 +155,8 @@ vector<string> wrapListText(const string& text, int width, u32 fontSize, u32 max
 			nextStart = skipSpaces(text, breakPos);
 		}
 		if(lineEnd <= start) {
-			lineEnd = hardEnd;
-			nextStart = hardEnd;
+			lines.push_back(ellipsizedSlice(text, start, width, fontSize));
+			return lines;
 		}
 		lines.push_back(text.substr(start, lineEnd - start));
 		start = skipSpaces(text, nextStart);
@@ -554,9 +560,162 @@ void Book :: buildFallbackToc()
 		const string title = collapseWhitespace(parag.str);
 		if(title.empty()) continue;
 		if(!tocEntries.empty() && tocEntries.back().place.parag_num == i) continue;
-		tocEntries.push_back(toc_entry(i, title));
+		tocEntries.push_back(toc_entry(i, title, 0));
 	}
 	tocReady = true;
+}
+
+u32 Book :: currentTocIndex() const
+{
+	if(tocEntries.empty()) return 0;
+	u32 best = 0;
+	for(u32 i = 0; i < tocEntries.size(); ++i) {
+		if(tocEntries[i].place.parag_num <= current_page.parag_num) best = i;
+		else break;
+	}
+	return best;
+}
+
+u32 Book :: tocSubtreeEnd(u32 index) const
+{
+	if(index >= tocEntries.size()) return tocEntries.size();
+	const u16 depth = tocEntries[index].depth;
+	u32 i = index + 1u;
+	while(i < tocEntries.size() && tocEntries[i].depth > depth) ++i;
+	return i;
+}
+
+bool Book :: tocHasChildren(u32 index) const
+{
+	return index + 1u < tocEntries.size() && tocEntries[index + 1u].depth > tocEntries[index].depth;
+}
+
+vector<u32> Book :: tocAncestors(u32 index) const
+{
+	vector<u32> path;
+	if(index >= tocEntries.size()) return path;
+
+	u16 depth = tocEntries[index].depth;
+	int cursor = (int)index;
+	while(depth > 0 && cursor > 0) {
+		bool found = false;
+		for(int i = cursor - 1; i >= 0; --i) {
+			if(tocEntries[i].depth != depth - 1) continue;
+			path.push_back((u32)i);
+			cursor = i;
+			--depth;
+			found = true;
+			break;
+		}
+		if(!found) break;
+	}
+	std::reverse(path.begin(), path.end());
+	return path;
+}
+
+void Book :: rebuildVisibleTocEntries()
+{
+	tocVisibleEntries.clear();
+	if(tocEntries.empty()) {
+		tocCursor = 0;
+		tocScroll = 0;
+		return;
+	}
+
+	int parentDepth = -1;
+	u32 start = 0;
+	u32 end = tocEntries.size();
+	if(!tocPath.empty()) {
+		const u32 parent = tocPath.back();
+		parentDepth = tocEntries[parent].depth;
+		start = parent + 1u;
+		end = tocSubtreeEnd(parent);
+	}
+
+	for(u32 i = start; i < end; ++i)
+		if((int)tocEntries[i].depth == parentDepth + 1)
+			tocVisibleEntries.push_back(i);
+
+	if(tocVisibleEntries.empty()) {
+		tocCursor = 0;
+		tocScroll = 0;
+		return;
+	}
+
+	if(tocCursor >= tocVisibleEntries.size()) tocCursor = tocVisibleEntries.size() - 1u;
+	const u32 visibleRows = bookmarkMenuRows();
+	const u32 maxScroll = (tocVisibleEntries.size() > visibleRows) ? tocVisibleEntries.size() - visibleRows : 0u;
+	if(tocScroll > maxScroll) tocScroll = maxScroll;
+	if(tocCursor < tocScroll) tocScroll = tocCursor;
+	else if(tocCursor >= tocScroll + visibleRows) tocScroll = tocCursor - visibleRows + 1u;
+	if(tocScroll > maxScroll) tocScroll = maxScroll;
+}
+
+void Book :: focusCurrentTocEntry()
+{
+	ensureToc();
+	tocPath.clear();
+	tocVisibleEntries.clear();
+	tocCursor = 0;
+	tocScroll = 0;
+	if(tocEntries.empty()) return;
+
+	const u32 index = currentTocIndex();
+	tocPath = tocAncestors(index);
+	rebuildVisibleTocEntries();
+	for(u32 i = 0; i < tocVisibleEntries.size(); ++i)
+		if(tocVisibleEntries[i] == index) {
+			tocCursor = i;
+			break;
+		}
+	rebuildVisibleTocEntries();
+}
+
+void Book :: leaveTocFolder()
+{
+	if(tocPath.empty()) return;
+	const u32 child = tocPath.back();
+	tocPath.pop_back();
+	tocCursor = 0;
+	tocScroll = 0;
+	rebuildVisibleTocEntries();
+	for(u32 i = 0; i < tocVisibleEntries.size(); ++i)
+		if(tocVisibleEntries[i] == child) {
+			tocCursor = i;
+			break;
+		}
+	rebuildVisibleTocEntries();
+}
+
+bool Book :: activateTocCursor()
+{
+	if(tocVisibleEntries.empty() || tocCursor >= tocVisibleEntries.size()) return false;
+	const u32 index = tocVisibleEntries[tocCursor];
+	if(tocHasChildren(index)) {
+		tocPath.push_back(index);
+		tocCursor = 0;
+		tocScroll = 0;
+		rebuildVisibleTocEntries();
+		return true;
+	}
+
+	current_page = tocEntries[index].place;
+	current_page.line_num = 0;
+	draw_page(true);
+	queueMarksSave();
+	return true;
+}
+
+string Book :: tocFolderLabel() const
+{
+	if(tocPath.empty()) return "Contents";
+	return tocEntries[tocPath.back()].title;
+}
+
+string Book :: tocRowLabel(u32 index) const
+{
+	if(index >= tocEntries.size()) return string();
+	return (tocHasChildren(index) ? string("> ") : string("  ")) + tocEntries[index].title;
 }
 
 string Book :: paragraphMenuLabel(u32 parag_num)
@@ -575,7 +734,7 @@ string Book :: paragraphMenuLabel(u32 parag_num)
 
 u32 Book :: bookmarkTotalItems() const
 {
-	return (bookmarkView == bookmarkViewContents) ? tocEntries.size() : bookmarks.size();
+	return (bookmarkView == bookmarkViewContents) ? tocVisibleEntries.size() : bookmarks.size();
 }
 
 u32* Book :: activeBookmarkScroll()
@@ -585,6 +744,24 @@ u32* Book :: activeBookmarkScroll()
 
 void Book :: clampBookmarkCursor()
 {
+	if(bookmarkView == bookmarkViewContents) {
+		const u32 totalItems = tocVisibleEntries.size();
+		if(0 == totalItems) {
+			tocCursor = 0;
+			tocScroll = 0;
+			return;
+		}
+
+		if(tocCursor >= totalItems) tocCursor = totalItems - 1u;
+		const u32 visibleRows = bookmarkMenuRows();
+		const u32 maxScroll = (totalItems > visibleRows) ? totalItems - visibleRows : 0u;
+		if(tocScroll > maxScroll) tocScroll = maxScroll;
+		if(tocCursor < tocScroll) tocScroll = tocCursor;
+		else if(tocCursor >= tocScroll + visibleRows) tocScroll = tocCursor - visibleRows + 1u;
+		if(tocScroll > maxScroll) tocScroll = maxScroll;
+		return;
+	}
+
 	u32* activeScroll = activeBookmarkScroll();
 	const u32 totalItems = bookmarkTotalItems();
 	if(0 == totalItems) {
@@ -604,6 +781,20 @@ void Book :: clampBookmarkCursor()
 
 void Book :: moveBookmarkCursor(int delta)
 {
+	if(bookmarkView == bookmarkViewContents) {
+		const u32 totalItems = tocVisibleEntries.size();
+		if(0 == totalItems) {
+			tocCursor = 0;
+			return;
+		}
+
+		int next = int(tocCursor) + delta;
+		clamp(next, 0, int(totalItems) - 1);
+		tocCursor = next;
+		clampBookmarkCursor();
+		return;
+	}
+
 	const u32 totalItems = bookmarkTotalItems();
 	if(0 == totalItems) {
 		bookmarkCursor = 0;
@@ -618,6 +809,9 @@ void Book :: moveBookmarkCursor(int delta)
 
 bool Book :: activateBookmarkCursor()
 {
+	if(bookmarkView == bookmarkViewContents)
+		return activateTocCursor();
+
 	if(bookmarkTargets.empty()) return false;
 	const u32* activeScroll = activeBookmarkScroll();
 	if(bookmarkCursor < *activeScroll) return false;
@@ -635,6 +829,10 @@ void Book :: bookmarkMenu()
 	ensureToc();
 	bookmarkView = bookmarkViewMarks;
 	bookmarkCursor = 0;
+	tocCursor = 0;
+	tocScroll = 0;
+	tocPath.clear();
+	tocVisibleEntries.clear();
 	const int width = screens::layoutX();
 	const int half = width / 2;
 	const u32 uiFont = bookmarkMenuFont();
@@ -645,6 +843,9 @@ void Book :: bookmarkMenu()
 	older = button(SAY2(older), 5, kActionY1, 70, kActionY2, uiFont);
 	setMark = button("___Set___", 74, kActionY1, width - 74, kActionY2, uiFont);
 	newer = button(SAY2(newer), width - 70, kActionY1, width - 5, kActionY2, uiFont);
+	older.enableAutoFit(10);
+	setMark.enableAutoFit(9);
+	newer.enableAutoFit(10);
 	listUp = button("^", width - kArrowWidth, kListY1, width - 5, kListY1 + rowHeight - 2, uiFont);
 	listDown = button("v", width - kArrowWidth, kListY1 + (visibleRows - 1) * rowHeight, width - 5, kListY1 + visibleRows * rowHeight - 2, uiFont);
 	prbar = progressbar();
@@ -652,20 +853,56 @@ void Book :: bookmarkMenu()
 	drawBookmarkMenu();
 	while(pumpPowerManagement()) {
 		swiWaitForVBlank();
-		renderer::printClock(bottom_scr);
 		scanKeys();
 		int down = keysDown();
 		if(down & KEY_TOUCH) {
 			const float p = prbar.touched();
-			u32* activeScroll = (bookmarkView == bookmarkViewContents) ? &tocScroll : &bookmarkScroll;
-			const u32 totalItems = (bookmarkView == bookmarkViewContents) ? tocEntries.size() : bookmarks.size();
 			if(tabMarks.touched()) {
 				bookmarkView = bookmarkViewMarks;
 				drawBookmarkMenu();
 			}
 			else if(tabContents.touched()) {
 				bookmarkView = bookmarkViewContents;
+				focusCurrentTocEntry();
 				drawBookmarkMenu();
+			}
+			else if(bookmarkView == bookmarkViewContents) {
+				if(older.touched() && !tocPath.empty()) {
+					leaveTocFolder();
+					drawBookmarkMenu();
+				}
+				else if(newer.touched()) {
+					if(activateTocCursor()) drawBookmarkMenu();
+				}
+				else if(listUp.touched() && tocScroll > 0) {
+					--tocScroll;
+					drawBookmarkMenu();
+				}
+				else if(listDown.touched() && tocScroll + bookmarkVisible < tocVisibleEntries.size()) {
+					++tocScroll;
+					drawBookmarkMenu();
+				}
+				else {
+					bool changed = false;
+					for(u32 i = 0; i < bookmarkRows.size(); ++i)
+						if(bookmarkRows[i].touched()) {
+							tocCursor = tocScroll + i;
+							clampBookmarkCursor();
+							if(activateTocCursor()) drawBookmarkMenu();
+							changed = true;
+							break;
+						}
+					if(!changed && p < 1.0f) {
+						u32 parag_num = p * total_paragraths();
+						if(parag_num == current_page.parag_num) continue;
+						current_page.parag_num = parag_num;
+						current_page.line_num = 0;
+						queueMarksSave();
+						draw_page(true);
+						focusCurrentTocEntry();
+						drawBookmarkMenu();
+					}
+				}
 			}
 			else if(setMark.touched()) {
 				if(bookmarks.find(current_page) == bookmarks.end()) {
@@ -688,19 +925,19 @@ void Book :: bookmarkMenu()
 				draw_page(true);
 				drawBookmarkMenu();
 			}
-			else if(listUp.touched() && *activeScroll > 0) {
-				--*activeScroll;
+			else if(listUp.touched() && bookmarkScroll > 0) {
+				--bookmarkScroll;
 				drawBookmarkMenu();
 			}
-			else if(listDown.touched() && *activeScroll + bookmarkVisible < totalItems) {
-				++*activeScroll;
+			else if(listDown.touched() && bookmarkScroll + bookmarkVisible < bookmarks.size()) {
+				++bookmarkScroll;
 				drawBookmarkMenu();
 			}
 			else {
 				bool changed = false;
 				for(u32 i = 0; i < bookmarkRows.size(); ++i)
 					if(bookmarkRows[i].touched()) {
-						bookmarkCursor = *activeScroll + i;
+						bookmarkCursor = bookmarkScroll + i;
 						current_page = bookmarkTargets[i];
 						current_page.line_num = 0;
 						queueMarksSave();
@@ -736,16 +973,22 @@ void Book :: bookmarkMenu()
 		}
 		else if(down & rKey(rLeft)) {
 			if(bookmarkView != bookmarkViewMarks) {
-				bookmarkView = bookmarkViewMarks;
-				clampBookmarkCursor();
-				drawBookmarkMenu();
+				if(!tocPath.empty()) {
+					leaveTocFolder();
+					drawBookmarkMenu();
+				}
+				else {
+					bookmarkView = bookmarkViewMarks;
+					clampBookmarkCursor();
+					drawBookmarkMenu();
+				}
 			}
 			else break;
 		}
 		else if(down & rKey(rRight)) {
 			if(bookmarkView != bookmarkViewContents) {
 				bookmarkView = bookmarkViewContents;
-				clampBookmarkCursor();
+				focusCurrentTocEntry();
 				drawBookmarkMenu();
 			}
 			else if(activateBookmarkCursor()) drawBookmarkMenu();
@@ -759,10 +1002,9 @@ void Book :: drawBookmarkMenu()
 {
 	renderer::setTopScreenMirror(false);
 	prbar = progressbar();
-	if(bookmarks.find(current_page) == bookmarks.end()) setMark.setText(SAY2(set));
-	else setMark.setText(SAY2(remove));
 	bookmarkRows.clear();
 	bookmarkTargets.clear();
+	tocRowEntries.clear();
 
 	const int width = screens::layoutX();
 	const int half = width / 2;
@@ -772,7 +1014,7 @@ void Book :: drawBookmarkMenu()
 	const u32 itemFont = bookmarkMenuListFont();
 	const u32 minItemFont = bookmarkMenuRotated() ? 10u : 9u;
 	const bool showContents = (bookmarkView == bookmarkViewContents);
-	const u32 totalItems = showContents ? tocEntries.size() : bookmarks.size();
+	const u32 totalItems = showContents ? tocVisibleEntries.size() : bookmarks.size();
 	u32* activeScroll = showContents ? &tocScroll : &bookmarkScroll;
 	clampBookmarkCursor();
 
@@ -780,21 +1022,37 @@ void Book :: drawBookmarkMenu()
 	renderer::fillRect(showContents ? half + 2 : 5, kTabY1 + 1, showContents ? width - 5 : half - 2, kTabY2 - 1, Blend(72), bottom_scr);
 	tabMarks.draw();
 	tabContents.draw();
-	setMark.draw();
-	if(moreNew()) newer.draw();
-	if(moreOld()) older.draw();
+	if(showContents) {
+		setMark.setText(tocFolderLabel());
+		newer.setText((!tocVisibleEntries.empty() && tocCursor < tocVisibleEntries.size() && tocHasChildren(tocVisibleEntries[tocCursor])) ? "Open" : "Go");
+		setMark.draw();
+		newer.draw();
+		if(!tocPath.empty()) {
+			older.setText("Back");
+			older.draw();
+		}
+	}
+	else {
+		if(bookmarks.find(current_page) == bookmarks.end()) setMark.setText(SAY2(set));
+		else setMark.setText(SAY2(remove));
+		setMark.draw();
+		if(moreNew()) newer.draw();
+		if(moreOld()) older.draw();
+	}
 
 	bookmarkVisible = 0;
 	if(showContents) {
-		for(u32 i = *activeScroll; i < tocEntries.size() && bookmarkVisible < visibleRows; ++i, ++bookmarkVisible) {
+		for(u32 i = *activeScroll; i < tocVisibleEntries.size() && bookmarkVisible < visibleRows; ++i, ++bookmarkVisible) {
 			const int rowTop = kListY1 + bookmarkVisible * rowHeight;
 			const int rowBottom = kListY1 + (bookmarkVisible + 1) * rowHeight - 2;
-			if(i == bookmarkCursor)
+			if(i == tocCursor)
 				renderer::fillRect(6, rowTop, listRight, rowBottom, Blend(72), bottom_scr);
 			button item("", 6, rowTop, listRight, rowBottom, itemFont);
 			bookmarkRows.push_back(item);
-			bookmarkTargets.push_back(tocEntries[i].place);
-			drawBookmarkListRow(6, rowTop, listRight, rowBottom, tocEntries[i].title, itemFont, minItemFont);
+			const u32 tocIndex = tocVisibleEntries[i];
+			bookmarkTargets.push_back(tocEntries[tocIndex].place);
+			tocRowEntries.push_back(tocIndex);
+			drawBookmarkListRow(6, rowTop, listRight, rowBottom, tocRowLabel(tocIndex), itemFont, minItemFont);
 		}
 	}
 	else {
@@ -830,7 +1088,6 @@ void Book :: drawBookmarkMenu()
 	prbar.draw (float(current_page.parag_num) / total_paragraths());
 	for (std::set<bookmark>::iterator it = bookmarks.begin(); it != bookmarks.end(); ++it)
 		prbar.mark(float(it->parag_num) / total_paragraths());
-	renderer::printClock(bottom_scr, true);
 	setBacklightMode(blOverlay);
 }
 
