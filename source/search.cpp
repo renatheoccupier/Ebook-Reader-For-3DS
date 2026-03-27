@@ -63,7 +63,7 @@ bool promptSearchText(string& searchstr)
 
 void drawSearchPanel(const string& searchstr, bool doCI, const string& status, button& prev, button& next, button& toggle, button& edit, button& close)
 {
-	renderer::setTopScreenMirror(true);
+	renderer::setTopScreenMirror(false);
 	renderer::clearScreens(settings::bgCol, bottom_scr);
 	renderer::printStr(eUtf8, bottom_scr, 10, 20, "Search", 0, 0, 18);
 	renderer::printStr(eUtf8, bottom_scr, 10, 42, compactText(searchstr, 38), 0, 0, 12);

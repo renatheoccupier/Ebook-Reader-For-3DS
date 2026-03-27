@@ -5,8 +5,12 @@
 
 namespace renderer
 {
-static const int kBufferWidth = 320;
+static const int kBufferWidth = 400;
 static const int kBufferHeight = 240;
+int screenPixelWidth(scr_id scr);
+int screenTextWidth(scr_id scr);
+int screenTextHeight(scr_id scr);
+void mapToScreen(scr_id scr, int& x, int& y);
 }
 
 inline u8 blend(u8 alpha, u8 color, u8 backg)
@@ -41,15 +45,15 @@ namespace renderer
 	extern u16 *bmp[2];
 	inline void putPixel(scr_id scr, int x, int y, u16 color)
 	{ 
-		toLayoutSpace(x, y);
-		if(x < 0 || x >= kBufferWidth || y < 0 || y >= kBufferHeight) return;
+		mapToScreen(scr, x, y);
+		if(x < 0 || x >= screenPixelWidth(scr) || y < 0 || y >= kBufferHeight) return;
 		markDirty();
 		bmp[scr][y * kBufferWidth + x] = color;
 	}
 	inline void putPixel(scr_id scr, int x, int y, Color c24)
 	{ 
-		toLayoutSpace(x, y);
-		if(x < 0 || x >= kBufferWidth || y < 0 || y >= kBufferHeight) return;
+		mapToScreen(scr, x, y);
+		if(x < 0 || x >= screenPixelWidth(scr) || y < 0 || y >= kBufferHeight) return;
 		markDirty();
 		u16 p = bmp[scr][y * kBufferWidth + x];
 		u8 r = p & 0x1F;

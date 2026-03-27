@@ -2,13 +2,14 @@
 #include "renderer.h"
 #include "screens.h"
 #include "controls.h"
+#include "pugixml.h"
 #include "settings.h"
 #include "utf8.h"
 #include "unzip.h"
 #include <algorithm>
+#include <map>
 #include <new>
 #include <setjmp.h>
-#include <time.h>
 #include <ctype.h>
 
 #include <stdio.h>
@@ -31,10 +32,11 @@ const int kPreviewTitleLines = 3;
 const int kPreviewTitleGap = 2;
 const int kPreviewImageGap = 8;
 const int kPromptFont = 12;
-const int kPreviewWarmupFrames = 10;
-const u32 kPreviewCandidatePool = 12u;
+const int kPreviewWarmupFrames = 12;
 const u32 kPreviewMaxEntryBytes = 768u * 1024u;
-const u32 kPreviewCacheEntries = 3u;
+const u32 kPreviewCacheEntries = 8u;
+const u32 kPreviewPathCacheEntries = 12u;
+const bool kPreviewCoversEnabled = true;
 
 string gLastBrowserPath;
 int gLastBrowserPos = 0;
@@ -54,6 +56,17 @@ struct PreviewCacheEntry
 vector<PreviewCacheEntry> gPreviewCache(kPreviewCacheEntries);
 u32 gPreviewCacheStamp = 1;
 
+struct PreviewPathCacheEntry
+{
+	string file;
+	string imagePath;
+	u32 stamp;
+	PreviewPathCacheEntry() : stamp(0) {}
+};
+
+vector<PreviewPathCacheEntry> gPreviewPathCache(kPreviewPathCacheEntries);
+u32 gPreviewPathCacheStamp = 1;
+
 int browserListRight()
 {
 	return MAX(40, int(screens::layoutX()) - kBrowserScrollbarGutter);
@@ -69,27 +82,18 @@ bool statPath(const string& path, struct stat& st)
 	return 0 == stat(path.c_str(), &st);
 }
 
-bool pathIsDirectory(const string& path)
+int classifyEntry(const string& basePath, const dirent* ent)
 {
-	struct stat st;
-	return statPath(path, st) && S_ISDIR(st.st_mode);
-}
+	if(ent == NULL) return -1;
+	if(ent->d_type == DT_DIR) return folder;
+	if(ent->d_type == DT_REG) return file;
+	if(ent->d_type != DT_UNKNOWN) return -1;
 
-bool entryIsDirectory(const string& basePath, const dirent* ent)
-{
-	if(ent == NULL) return false;
-	if(ent->d_type == DT_DIR) return true;
-	if(ent->d_type != DT_UNKNOWN) return false;
-	return pathIsDirectory(basePath + ent->d_name);
-}
-
-bool entryIsFile(const string& basePath, const dirent* ent)
-{
-	if(ent == NULL) return false;
-	if(ent->d_type == DT_DIR) return false;
-	if(ent->d_type != DT_UNKNOWN) return true;
 	struct stat st;
-	return statPath(basePath + ent->d_name, st) && S_ISREG(st.st_mode);
+	if(!statPath(basePath + ent->d_name, st)) return -1;
+	if(S_ISDIR(st.st_mode)) return folder;
+	if(S_ISREG(st.st_mode)) return file;
+	return -1;
 }
 
 bool folderExists(const string& candidate)
@@ -384,10 +388,68 @@ bool loadZipEntry(unzFile& zip, const string& file, char *&buf, u32& size)
 	return true;
 }
 
+bool loadXmlFromZip(unzFile& zip, const string& file, pugi::xml_document& doc)
+{
+	char* buf = NULL;
+	u32 size = 0;
+	if(!loadZipEntry(zip, file, buf, size) || NULL == buf) return false;
+	const pugi::xml_parse_result result = doc.load_buffer(buf, size);
+	delete[] buf;
+	return result.status == pugi::status_ok;
+}
+
+string stripFragment(const string& path)
+{
+	const string::size_type pos = path.find('#');
+	return (string::npos == pos) ? path : path.substr(0, pos);
+}
+
+string dirName(const string& path)
+{
+	const string::size_type pos = path.find_last_of('/');
+	return (string::npos == pos) ? string() : path.substr(0, pos + 1);
+}
+
+bool hasUriScheme(const string& path)
+{
+	const string::size_type colon = path.find(':');
+	const string::size_type slash = path.find('/');
+	return string::npos != colon && (string::npos == slash || colon < slash);
+}
+
+string normalizeZipPath(const string& base, const string& raw_path)
+{
+	string path = stripFragment(raw_path);
+	if(path.empty() || hasUriScheme(path)) return string();
+	if(path[0] != '/') path = base + path;
+	else path.erase(0, 1);
+
+	vector<string> parts;
+	string::size_type start = 0;
+	while(start <= path.length()) {
+		string::size_type end = path.find('/', start);
+		string part = (string::npos == end) ? path.substr(start) : path.substr(start, end - start);
+		if(part == "..") {
+			if(!parts.empty()) parts.pop_back();
+		}
+		else if(!part.empty() && part != ".") parts.push_back(part);
+		if(string::npos == end) break;
+		start = end + 1;
+	}
+
+	string normalized;
+	for(u32 i = 0; i < parts.size(); ++i) {
+		if(i) normalized += '/';
+		normalized += parts[i];
+	}
+	return normalized;
+}
+
 string lowerPath(const string& path)
 {
 	string out = path;
-	transform(out.begin(), out.end(), out.begin(), tolower);
+	for(u32 i = 0; i < out.size(); ++i)
+		out[i] = tolower((unsigned char)out[i]);
 	return out;
 }
 
@@ -396,17 +458,20 @@ bool isPreviewJpegPath(const string& path)
 	const string lower = lowerPath(path);
 	return lower.length() > 4 &&
 		(lower.compare(lower.length() - 4, 4, ".jpg") == 0 ||
-		 lower.compare(lower.length() - 5, 5, ".jpeg") == 0);
+			 lower.compare(lower.length() - 5, 5, ".jpeg") == 0);
 }
 
-u32 hashString(const string& text)
+bool containsWord(const string& words, const string& word)
 {
-	u32 hash = 2166136261u;
-	for(u32 i = 0; i < text.size(); ++i) {
-		hash ^= (unsigned char)text[i];
-		hash *= 16777619u;
+	string::size_type start = 0;
+	while(start <= words.length()) {
+		const string::size_type end = words.find(' ', start);
+		const string item = (string::npos == end) ? words.substr(start) : words.substr(start, end - start);
+		if(item == word) return true;
+		if(string::npos == end) break;
+		start = end + 1;
 	}
-	return hash;
+	return false;
 }
 
 bool tryLoadPreviewCache(const string& file_name, u16 maxWidth, u16 maxHeight, vector<u16>& pixels, u16& width, u16& height, bool& hasImage)
@@ -450,6 +515,176 @@ void storePreviewCache(const string& file_name, const vector<u16>& pixels, u16 w
 	slot->stamp = gPreviewCacheStamp++;
 }
 
+bool tryLoadPreviewPathCache(const string& file_name, string& imagePath)
+{
+	for(u32 i = 0; i < gPreviewPathCache.size(); ++i) {
+		PreviewPathCacheEntry& entry = gPreviewPathCache[i];
+		if(entry.file != file_name) continue;
+		imagePath = entry.imagePath;
+		entry.stamp = gPreviewPathCacheStamp++;
+		return true;
+	}
+	return false;
+}
+
+void storePreviewPathCache(const string& file_name, const string& imagePath)
+{
+	if(gPreviewPathCache.empty()) return;
+
+	PreviewPathCacheEntry* slot = &gPreviewPathCache[0];
+	for(u32 i = 0; i < gPreviewPathCache.size(); ++i) {
+		PreviewPathCacheEntry& entry = gPreviewPathCache[i];
+		if(entry.file.empty()) {
+			slot = &entry;
+			break;
+		}
+		if(entry.stamp < slot->stamp) slot = &entry;
+	}
+
+	slot->file = file_name;
+	slot->imagePath = imagePath;
+	slot->stamp = gPreviewPathCacheStamp++;
+}
+
+bool findPreviewCoverInOpf(unzFile& zip, const string& opfPath, string& imagePath)
+{
+	pugi::xml_document doc;
+	if(!loadXmlFromZip(zip, opfPath, doc)) return false;
+
+	const string opfDir = dirName(opfPath);
+	std::map<string, string> manifestFiles;
+	string coverId;
+	string namedCandidate;
+	for(pugi::xml_node meta = doc.child("package").child("metadata").first_child(); meta; meta = meta.next_sibling()) {
+		if(strcmp(meta.name(), "meta")) continue;
+		const string name = lowerPath(meta.attribute("name").value());
+		if(name == "cover") {
+			const string content = meta.attribute("content").value();
+			if(!content.empty()) coverId = content;
+		}
+	}
+
+	for(pugi::xml_node item = doc.child("package").child("manifest").first_child(); item; item = item.next_sibling()) {
+		if(strcmp(item.name(), "item")) continue;
+		const string id = item.attribute("id").value();
+		const string href = normalizeZipPath(opfDir, item.attribute("href").value());
+		if(href.empty()) continue;
+		manifestFiles[id] = href;
+
+		const string mediaType = lowerPath(item.attribute("media-type").value());
+		if(mediaType != "image/jpeg" && mediaType != "image/jpg" && !isPreviewJpegPath(href))
+			continue;
+
+		const string properties = lowerPath(item.attribute("properties").value());
+		if(containsWord(properties, "cover-image")) {
+			imagePath = href;
+			return true;
+		}
+
+		const string lowerId = lowerPath(id);
+		const string lowerHref = lowerPath(href);
+		if(namedCandidate.empty() &&
+			(lowerId.find("cover") != string::npos ||
+			 lowerHref.find("cover") != string::npos ||
+			 lowerHref.find("front") != string::npos))
+			namedCandidate = href;
+	}
+
+	if(!coverId.empty()) {
+		std::map<string, string>::const_iterator it = manifestFiles.find(coverId);
+		if(it != manifestFiles.end() && isPreviewJpegPath(it->second)) {
+			imagePath = it->second;
+			return true;
+		}
+	}
+
+	for(pugi::xml_node ref = doc.child("package").child("guide").first_child(); ref; ref = ref.next_sibling()) {
+		if(strcmp(ref.name(), "reference")) continue;
+		const string type = lowerPath(ref.attribute("type").value());
+		if(type.find("cover") == string::npos) continue;
+		const string href = normalizeZipPath(opfDir, ref.attribute("href").value());
+		if(isPreviewJpegPath(href)) {
+			imagePath = href;
+			return true;
+		}
+	}
+
+	if(!namedCandidate.empty()) {
+		imagePath = namedCandidate;
+		return true;
+	}
+	return false;
+}
+
+bool findPreviewCoverByScan(unzFile& zip, string& imagePath, const string& skipPath = string())
+{
+	imagePath.clear();
+	if(unzGoToFirstFile(zip) != UNZ_OK) return false;
+
+	int bestScore = -1;
+	u32 bestSize = 0xFFFFFFFFu;
+	do {
+		unz_file_info info;
+		char name[256];
+		if(unzGetCurrentFileInfo(zip, &info, name, sizeof(name), NULL, 0, NULL, 0) != UNZ_OK)
+			continue;
+		if(info.uncompressed_size > kPreviewMaxEntryBytes) continue;
+
+		const string path(name);
+		if(path.empty() || path[path.size() - 1] == '/' || path == skipPath) continue;
+		if(!isPreviewJpegPath(path)) continue;
+
+		const string lower = lowerPath(path);
+		int score = 0;
+		if(lower.find("cover") != string::npos) score += 8;
+		if(lower.find("front") != string::npos) score += 4;
+		if(lower.find("thumb") != string::npos) score += 2;
+		if(lower.find("image") != string::npos) score += 1;
+		if(score > bestScore || (score == bestScore && info.uncompressed_size < bestSize)) {
+			imagePath = path;
+			bestScore = score;
+			bestSize = info.uncompressed_size;
+			if(score >= 8) return true;
+		}
+	} while(unzGoToNextFile(zip) == UNZ_OK);
+
+	return !imagePath.empty();
+}
+
+bool resolvePreviewImagePath(unzFile& zip, const string& epubFile, string& imagePath)
+{
+	if(tryLoadPreviewPathCache(epubFile, imagePath))
+		return !imagePath.empty();
+
+	imagePath.clear();
+	pugi::xml_document containerDoc;
+	if(loadXmlFromZip(zip, "META-INF/container.xml", containerDoc)) {
+		const string opfPath = containerDoc.child("container").child("rootfiles").child("rootfile").attribute("full-path").value();
+		if(!opfPath.empty())
+			findPreviewCoverInOpf(zip, opfPath, imagePath);
+	}
+
+	if(imagePath.empty())
+		findPreviewCoverByScan(zip, imagePath);
+
+	storePreviewPathCache(epubFile, imagePath);
+	return !imagePath.empty();
+}
+
+bool decodePreviewEntry(unzFile& zip, const string& path, u16 maxWidth, u16 maxHeight, vector<u16>& pixels, u16& width, u16& height)
+{
+	char* buf = NULL;
+	u32 size = 0;
+	if(!loadZipEntry(zip, path, buf, size) || NULL == buf) return false;
+	const bool ok =
+		size > 2u &&
+		(u8)buf[0] == 0xFF &&
+		(u8)buf[1] == 0xD8 &&
+		decodePreviewJpeg(buf, size, maxWidth, maxHeight, pixels, width, height);
+	delete[] buf;
+	return ok && width >= 24u && height >= 24u;
+}
+
 bool loadPreviewImage(const string& epubFile, u16 maxWidth, u16 maxHeight, vector<u16>& pixels, u16& width, u16& height)
 {
 	pixels.clear();
@@ -458,58 +693,25 @@ bool loadPreviewImage(const string& epubFile, u16 maxWidth, u16 maxHeight, vecto
 	unzFile zip = unzOpen(epubFile.c_str());
 	if(zip == NULL) return false;
 
-	vector<string> candidates;
-	candidates.reserve(kPreviewCandidatePool);
-	u32 seed = hashString(epubFile) ^ (u32)time(NULL);
-	u32 eligible = 0;
-	if(unzGoToFirstFile(zip) != UNZ_OK) {
+	string candidate;
+	if(!resolvePreviewImagePath(zip, epubFile, candidate) || candidate.empty()) {
 		unzClose(zip);
 		return false;
 	}
 
-	do {
-		unz_file_info info;
-		char name[256];
-		if(unzGetCurrentFileInfo(zip, &info, name, sizeof(name), NULL, 0, NULL, 0) != UNZ_OK)
-			continue;
-		if(info.uncompressed_size > kPreviewMaxEntryBytes) continue;
-		const string path(name);
-		if(path.empty() || path[path.size() - 1] == '/') continue;
-		if(!isPreviewJpegPath(path)) continue;
-
-		++eligible;
-		if(candidates.size() < kPreviewCandidatePool) candidates.push_back(path);
-		else {
-			seed = seed * 1664525u + 1013904223u;
-			const u32 slot = seed % eligible;
-			if(slot < kPreviewCandidatePool) candidates[slot] = path;
-		}
-	} while(unzGoToNextFile(zip) == UNZ_OK);
-
-	if(candidates.empty()) {
+	if(decodePreviewEntry(zip, candidate, maxWidth, maxHeight, pixels, width, height)) {
 		unzClose(zip);
-		return false;
+		return true;
 	}
 
-	const u32 first = seed % candidates.size();
-	const u32 attempts = MIN((u32)candidates.size(), 3u);
-	for(u32 i = 0; i < attempts; ++i) {
-		const string& candidate = candidates[(first + i) % candidates.size()];
-		char* buf = NULL;
-		u32 size = 0;
-		if(!loadZipEntry(zip, candidate, buf, size) || NULL == buf) continue;
-		const bool ok =
-			size > 2u &&
-			(u8)buf[0] == 0xFF &&
-			(u8)buf[1] == 0xD8 &&
-			decodePreviewJpeg(buf, size, maxWidth, maxHeight, pixels, width, height);
-		delete[] buf;
-		if(ok && width >= 24u && height >= 24u) {
-			unzClose(zip);
-			return true;
-		}
+	const string failedCandidate = candidate;
+	if(findPreviewCoverByScan(zip, candidate, failedCandidate) && decodePreviewEntry(zip, candidate, maxWidth, maxHeight, pixels, width, height)) {
+		storePreviewPathCache(epubFile, candidate);
+		unzClose(zip);
+		return true;
 	}
 
+	storePreviewPathCache(epubFile, string());
 	unzClose(zip);
 	return false;
 }
@@ -590,10 +792,11 @@ void file_browser :: cd()
 		if(strcmp(".", ent->d_name) == 0 || strcmp("..", ent->d_name) == 0)
 			continue;
 
-		if(entryIsDirectory(path, ent)) {
+		const int kind = classifyEntry(path, ent);
+		if(folder == kind) {
 			flist.push_back(entry(folder, ent->d_name));
 		}
-		else if(entryIsFile(path, ent)) {
+		else if(file == kind) {
 			string ext(extention(ent->d_name));
 			if(ext == "epub") flist.push_back(entry(file, ent->d_name));
 		}
@@ -635,17 +838,19 @@ void file_browser :: showPreview(const string& file_name)
 	vector<u16>().swap(previewPixels);
 	previewWidth = previewHeight = 0;
 	previewHasImage = false;
-	const int clockTop = statusTop();
-	const int frameX1 = 12;
-	const int frameX2 = 120;
-	const int frameY1 = 86;
-	const int frameY2 = clockTop - 10;
-	const int innerWidth = frameX2 - frameX1 - 10;
-	const int innerHeight = frameY2 - frameY1 - 10;
-	if(innerWidth > 24 && innerHeight > 24 &&
-		!tryLoadPreviewCache(file_name, innerWidth, innerHeight, previewPixels, previewWidth, previewHeight, previewHasImage)) {
-		previewHasImage = loadPreviewImage(file_name, innerWidth, innerHeight, previewPixels, previewWidth, previewHeight);
-		storePreviewCache(file_name, previewPixels, previewWidth, previewHeight, innerWidth, innerHeight, previewHasImage);
+	if(kPreviewCoversEnabled) {
+		const int clockTop = statusTop();
+		const int frameX1 = 12;
+		const int frameX2 = 120;
+		const int frameY1 = 86;
+		const int frameY2 = clockTop - 10;
+		const int innerWidth = frameX2 - frameX1 - 10;
+		const int innerHeight = frameY2 - frameY1 - 10;
+		if(innerWidth > 24 && innerHeight > 24 &&
+			!tryLoadPreviewCache(file_name, innerWidth, innerHeight, previewPixels, previewWidth, previewHeight, previewHasImage)) {
+			previewHasImage = loadPreviewImage(file_name, innerWidth, innerHeight, previewPixels, previewWidth, previewHeight);
+			storePreviewCache(file_name, previewPixels, previewWidth, previewHeight, innerWidth, innerHeight, previewHasImage);
+		}
 	}
 	previewPending = false;
 	previewDelayFrames = 0;
@@ -654,6 +859,7 @@ void file_browser :: showPreview(const string& file_name)
 
 bool file_browser :: tickPreview()
 {
+	if(!kPreviewCoversEnabled) return false;
 	if(!previewPending || previewFile.empty()) return false;
 	if(previewDelayFrames > 0) {
 		--previewDelayFrames;
@@ -684,7 +890,7 @@ void file_browser :: syncPreviewToCursor(bool force)
 	}
 
 	const string file_name = path + current.second;
-	if(force) {
+	if(force || !kPreviewCoversEnabled) {
 		showPreview(file_name);
 		return;
 	}
@@ -719,7 +925,7 @@ void file_browser :: drawPreview()
 {
 	renderer::clearScreens(settings::bgCol, top_scr);
 
-	const int width = screens::layoutX();
+	const int width = renderer::screenTextWidth(top_scr) - 1;
 	const int clockTop = statusTop();
 	const int leftPad = 10;
 	const int rightPad = width - 10;
@@ -783,12 +989,12 @@ void file_browser :: drawPreview()
 			renderer::drawImageSlice(top_scr, drawX, drawY, previewPixels, previewWidth, previewHeight, 0, previewHeight);
 			renderer::printStr(eUtf8, top_scr, detailX1 + 8, detailY1 + 104, "Embedded cover ready", 0, 0, 10);
 		}
-		else {
-			drawPreviewIcon(previewX1 + 4, previewY1 + 4, previewX2 - 4, previewY2 - 4);
-			const string status = previewPending ? "Loading cover..." : "No embedded JPG cover found";
-			drawWrappedText(top_scr, detailX1 + 8, detailY1 + 104, detailX2 - detailX1 - 16, status, 10, 3);
+			else {
+				drawPreviewIcon(previewX1 + 4, previewY1 + 4, previewX2 - 4, previewY2 - 4);
+				const string status = previewPending ? "Loading cover..." : "No embedded JPG cover found";
+				drawWrappedText(top_scr, detailX1 + 8, detailY1 + 104, detailX2 - detailX1 - 16, status, 10, 3);
+			}
 		}
-	}
 
 	renderer::fillRect(leftPad, clockTop - 26, rightPad, clockTop - 4, Blend(28), top_scr);
 	renderer::rect(leftPad, clockTop - 26, rightPad, clockTop - 4, top_scr);
@@ -879,7 +1085,7 @@ string file_browser :: run()
 		int down = keysDown();
 		if(!down) continue;
 
-		if(down & rKey(rLeft)) {
+		if(down & (KEY_B | KEY_LEFT | KEY_L)) {
 			if(path != sdRootPath()) {
 				resetPreview();
 				path.erase(path.find_last_of('/', path.size() - 2) + 1);
@@ -891,17 +1097,17 @@ string file_browser :: run()
 			resetPreview();
 			return string();
 		}
-		if(down & rKey(rUp)){
+		if(down & KEY_UP){
 			if(flist.empty() || 0 == cursor) continue;
 			--cursor;
 			upd();
 		}
-		else if(down & rKey(rDown)){
+		else if(down & KEY_DOWN){
 			if(flist.empty() || cursor >= int(flist.size()) - 1) continue;
 			++cursor;
 			upd();
 		}
-		else if(down & rKey(rRight)) {
+		else if(down & (KEY_A | KEY_RIGHT | KEY_R)) {
 			const string selected = activateCursor();
 			if(!selected.empty()) {
 				saveBrowserState(path, pos, cursor);

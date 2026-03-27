@@ -30,6 +30,11 @@ static const u8 gamma067[32] = {0, 3, 5, 7, 8, 9, 10, 11, 13, 14, 15, 16, 16, 17
 namespace
 {
 
+int textLimitX(scr_id scr)
+{
+	return screenTextWidth(scr) - 1;
+}
+
 inline u8 expand5(u8 value)
 {
 	return (value << 3) | (value >> 2);
@@ -75,14 +80,16 @@ void drawStatusBar(scr_id scr, bool framed)
 	struct tm* timeStruct = localtime(&unixTime);
 	sprintf(buf, "%02d:%02d:%02d", timeStruct->tm_hour, timeStruct->tm_min, timeStruct->tm_sec);
 
-	const u16 y1 = screens::layoutY() - buttonFontSize * 3 / 2;
-	const u16 y2 = screens::layoutY();
-	const u16 baselineY = screens::layoutY() - buttonFontSize / 2;
+	const int width = textLimitX(scr);
+	const int height = screenTextHeight(scr) - 1;
+	const u16 y1 = height - buttonFontSize * 3 / 2;
+	const u16 y2 = height;
+	const u16 baselineY = height - buttonFontSize / 2;
 
-	fillRect(0, y1, screens::layoutX(), y2, settings::bgCol, scr);
-	if(framed) rect(0, y1, screens::layoutX(), y2, scr);
+	fillRect(0, y1, width, y2, settings::bgCol, scr);
+	if(framed) rect(0, y1, width, y2, scr);
 	printStr(eUtf8, scr, 5, baselineY, buf, 0, 0, buttonFontSize);
-	printStr(eUtf8, scr, screens::layoutX() - 36, baselineY, "3DS", 0, 0, buttonFontSize);
+	printStr(eUtf8, scr, width - 36, baselineY, "3DS", 0, 0, buttonFontSize);
 }
 
 void fillFramebuffer(gfxScreen_t screen, u16 color)
@@ -97,12 +104,14 @@ void blitScreen(scr_id scr, gfxScreen_t screen)
 {
 	const int height = 240;
 	const int width = (screen == GFX_TOP) ? 400 : 320;
+	const int copyWidth = MIN(width, screenPixelWidth(scr));
+	const int offsetX = 0;
 	u8* fb = gfxGetFramebuffer(screen, GFX_LEFT, NULL, NULL);
 	if(fb == NULL) return;
 
 	for(int y = 0; y < kBufferHeight; ++y) {
-		for(int dstX = 0; dstX < width; ++dstX) {
-			const int srcX = (dstX * kBufferWidth) / width;
+		for(int srcX = 0; srcX < copyWidth; ++srcX) {
+			const int dstX = offsetX + srcX;
 			const u16 pixel = bmp[scr][y * kBufferWidth + srcX];
 			const int pos = (dstX * height + (height - 1 - y)) * 3;
 			fb[pos + 0] = expand5((pixel >> 10) & 0x1F);
@@ -116,7 +125,7 @@ void blitScreen(scr_id scr, gfxScreen_t screen)
 
 inline void putPixel150(scr_id scr, int x, int y, Color c24)
 {
-	toLayoutSpace(x, y);
+	mapToScreen(scr, x, y);
 	if(x < 0 || x >= kBufferWidth || y < 0 || y >= kBufferHeight) return;
 	u16 p = bmp[scr][y * kBufferWidth + x];
 	u8 r = p & 0x1F;
@@ -129,7 +138,7 @@ inline void putPixel150(scr_id scr, int x, int y, Color c24)
 
 inline void putPixel067(scr_id scr, int x, int y, Color c24)
 {
-	toLayoutSpace(x, y);
+	mapToScreen(scr, x, y);
 	if(x < 0 || x >= kBufferWidth || y < 0 || y >= kBufferHeight) return;
 	u16 p = bmp[scr][y * kBufferWidth + x];
 	u8 r = p & 0x1F;
@@ -225,6 +234,47 @@ void markDirty()
 	gFrameDirty = true;
 }
 
+int screenPixelWidth(scr_id scr)
+{
+	return (scr == top_scr) ? 400 : 320;
+}
+
+int screenTextWidth(scr_id scr)
+{
+	return screens::screen_text_width(scr);
+}
+
+int screenTextHeight(scr_id scr)
+{
+	return screens::screen_text_height(scr);
+}
+
+void mapToScreen(scr_id scr, int& x, int& y)
+{
+	const int width = screenTextWidth(scr);
+	const int height = screenTextHeight(scr);
+	switch(settings::layout) {
+		case d0:
+			return;
+		case d90: {
+			const int c = x;
+			x = height - 1 - y;
+			y = c;
+			return;
+		}
+		case d180:
+			x = width - 1 - x;
+			y = height - 1 - y;
+			return;
+		case d270: {
+			const int c = x;
+			x = y;
+			y = width - 1 - c;
+			return;
+		}
+	}
+}
+
 void setTopScreenMirror(bool enabled)
 {
 	if(gMirrorTopFromBottom == enabled) return;
@@ -251,8 +301,8 @@ void present()
 
 void drawLine(int x1, int y1, int x2, int y2, u16 color, scr_id scr)
 {
-	toLayoutSpace(x1, y1);
-	toLayoutSpace(x2, y2);
+	mapToScreen(scr, x1, y1);
+	mapToScreen(scr, x2, y2);
 	markDirty();
 
 	int deltaX = abs(x2 - x1);
@@ -261,7 +311,7 @@ void drawLine(int x1, int y1, int x2, int y2, u16 color, scr_id scr)
 	int signY = y1 < y2 ? 1 : -1;
 	int error = deltaX - deltaY;
 	while(true) {
-		if(x1 >= 0 && x1 < kBufferWidth && y1 >= 0 && y1 < kBufferHeight)
+		if(x1 >= 0 && x1 < screenPixelWidth(scr) && y1 >= 0 && y1 < kBufferHeight)
 			bmp[scr][y1 * kBufferWidth + x1] = color;
 		if(x1 == x2 && y1 == y2) break;
 		int error2 = error * 2;
@@ -388,7 +438,7 @@ int printStr(Encoding enc, scr_id scr, u16 x, u16 y, const string& str, u32 star
 			old_gi = 0;
 			continue;
 		}
-		if(x + ftcSBit->xadvance > screens::layoutX()) break;
+		if(x + ftcSBit->xadvance > textLimitX(scr)) break;
 		charLcd(scr, x + ftcSBit->left, y - ftcSBit->top, ftcSBit);
 		x += ftcSBit->xadvance;
 		old_gi = glyph_index;
@@ -437,7 +487,7 @@ int strWidth(Encoding enc, const string& str, u32 start, u32 end, u8 fontSize, f
 			continue;
 		}
 		width += ftcSBit->xadvance;
-		if(width > screens::layoutX()) return 9999;
+		if(width > MAX(screens::layoutX(), screenTextWidth(top_scr) - 1)) return 9999;
 		old_gi = glyph_index;
 	}
 	return width;
@@ -494,8 +544,8 @@ void drawImageSlice(scr_id scr, int x, int y, const vector<u16>& pixels, u16 wid
 		y = 0;
 	}
 
-	const int maxWidth = screens::layoutX() + 1;
-	const int maxHeight = screens::layoutY() + 1;
+	const int maxWidth = screenTextWidth(scr);
+	const int maxHeight = screenTextHeight(scr);
 	if(x >= maxWidth || y >= maxHeight) return;
 	if(x + drawWidth > maxWidth) drawWidth = maxWidth - x;
 	if(y + drawHeight > maxHeight) drawHeight = maxHeight - y;

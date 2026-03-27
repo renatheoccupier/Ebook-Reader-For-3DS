@@ -24,6 +24,12 @@ void ensureDir(const string& path)
 
 } // namespace
 
+extern "C" {
+	u32 __stacksize__ = 1024 * 1024;
+	u32 __ctru_heap_size = 40 * 1024 * 1024;
+	u32 __ctru_linear_heap_size = 4 * 1024 * 1024;
+}
+
 const string& sdRootPath()
 {
 	static const string kPath("sdmc:/");
@@ -127,6 +133,9 @@ int iprintf(const char* fmt, ...)
 
 void initPowerManagement()
 {
+	bool isNew3DS = false;
+	if(R_SUCCEEDED(APT_CheckNew3DS(&isNew3DS)) && isNew3DS)
+		osSetSpeedupEnable(true);
 }
 
 bool pumpPowerManagement()

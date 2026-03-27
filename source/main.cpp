@@ -14,6 +14,15 @@ namespace
 const string kMenuTitle("EBook Reader");
 const string kMenuSubtitle("Nintendo 3DS EPUB Library");
 
+void waitForInputRelease()
+{
+	while(pumpPowerManagement()) {
+		swiWaitForVBlank();
+		scanKeys();
+		if(0 == keysHeld()) return;
+	}
+}
+
 int statusTop()
 {
 	return screens::layoutY() - buttonFontSize * 3 / 2;
@@ -83,7 +92,7 @@ string compactValue(const string& text, int width, u32 fontSize)
 
 void drawMenuTopScreen()
 {
-	const int width = screens::layoutX();
+	const int width = renderer::screenTextWidth(top_scr) - 1;
 	const int clockTop = statusTop();
 
 	renderer::clearScreens(settings::bgCol, top_scr);
@@ -127,6 +136,7 @@ static bool book_ok(const string& file_name)
 }
 
 static grid menu(0);
+static Layout gReadingLayout = d0;
 
 void drawMenu()
 {
@@ -156,15 +166,22 @@ string browseForBook()
 
 void browseLoop()
 {
+	settings::layout = d0;
 	while(pumpPowerManagement()) {
 		const string file = browseForBook();
 		if(file.empty()) {
 			if(appShouldExit()) return;
+			settings::layout = d0;
 			drawMenu();
 			return;
 		}
+		waitForInputRelease();
+		if(appShouldExit()) return;
+		settings::layout = gReadingLayout;
 		openBook(file);
 		if(appShouldExit()) return;
+		gReadingLayout = settings::layout;
+		settings::layout = d0;
 	}
 }
 
@@ -195,35 +212,52 @@ int main(int argc, char* argv[])
 	closedir(transDir);
 
 	settings::load();
+	gReadingLayout = settings::layout;
 	applyBrightness();
 	initPowerManagement();
 	renderer::initFonts();
 	string trans = transPath + settings::translname;
 	if(file_ok(trans)) loadTrans(trans);
 
-	if(book_ok(argfile)) openBook(argfile);
+	if(book_ok(argfile)) {
+		settings::layout = gReadingLayout;
+		openBook(argfile);
+		gReadingLayout = settings::layout;
+	}
 	if(appShouldExit()) {
 		renderer::shutdownVideo();
 		return 0;
 	}
+	settings::layout = d0;
 	if(!book_ok(settings::recent_book)) browseLoop();
 	if(appShouldExit()) {
 		renderer::shutdownVideo();
 		return 0;
 	}
 
+	settings::layout = d0;
 	drawMenu();
 	while(pumpPowerManagement()) {
 		swiWaitForVBlank();
 		scanKeys();
 		const int down = keysDown();
 		if(down & KEY_START) break;
+		if(down & (KEY_A | KEY_RIGHT | KEY_R)) {
+			browseLoop();
+			if(appShouldExit()) break;
+			continue;
+		}
 		if(!(down & KEY_TOUCH)) continue;
 		const string* t = menu.update();
 		if(SAY(files) == t) browseLoop();
 		else if(SAY(light) == t) cycleBacklight();
 		else if(SAY(resume) == t && book_ok(settings::recent_book)) {
+			waitForInputRelease();
+			if(appShouldExit()) break;
+			settings::layout = gReadingLayout;
 			openBook(settings::recent_book);
+			gReadingLayout = settings::layout;
+			settings::layout = d0;
 			drawMenu();
 		}
 	}

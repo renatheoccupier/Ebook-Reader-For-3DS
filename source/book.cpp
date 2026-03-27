@@ -497,7 +497,8 @@ void Book :: draw_page(bool onlyTop, bool cachePar)
 	setBacklightMode(mode);
 	
 	int line_num = current_page.line_num;
-	u32 lines_total = screens::capacity(onlyTop || settings::scrConf != scBoth);
+	u32 lines_total = onlyTop ? screens::screen_capacity(top_scr)
+		: screens::capacity(settings::scrConf != scBoth);
 	u32 k = 0;
 	for (u16 i = current_page.parag_num; k < lines_total && i < total_paragraths(); i++)
 	{
@@ -510,20 +511,22 @@ void Book :: draw_page(bool onlyTop, bool cachePar)
 	if(!onlyTop) {
 		if(settings::scrConf != scBoth)
 			renderer::clearScreens(0, (scr_id)!first_scr());
-		else if(k <= screens::capacity(true))
+		else if(k <= screens::first_screen_capacity())
 			renderer::clearScreens(settings::bgCol, (scr_id)!first_scr());
 	}
 	
 	if(settings::pbar) {
-		u16 fcol = settings::fCol, gray = Blend(64), xw = screens::layoutX() + 1;
-		u32 upto = current_page.parag_num * xw / total_paragraths();
+		u16 fcol = settings::fCol, gray = Blend(64);
 		scr_id scr = (scr_id)(settings::scrConf == scBoth ? !first_scr(): first_scr());
 		if(onlyTop) scr = top_scr;
-		for(u32 i = 0, y = screens::layoutY() - 1u, y2 = screens::layoutY(); i < xw; i++) {
+		const u16 xw = renderer::screenTextWidth(scr);
+		u32 upto = current_page.parag_num * xw / total_paragraths();
+		const u32 screenBottom = screens::screen_text_height(scr) - 1u;
+		for(u32 i = 0, y = screenBottom - 1u, y2 = screenBottom; i < xw; i++) {
 			renderer::putPixel(scr, i, y, (i >= upto ? gray : fcol));
 			renderer::putPixel(scr, i, y2, (i >= upto ? gray : settings::bgCol));
 		}
-		if(upto > 0) renderer::putPixel(scr, upto - 1, screens::layoutY(), fcol);
+		if(upto > 0) renderer::putPixel(scr, upto - 1, screenBottom, fcol);
 	}
 	if(!onlyTop) {
 		if(settings::scrConf != scBoth) renderer::flashClock.show(first_scr());
@@ -534,6 +537,10 @@ void Book :: draw_page(bool onlyTop, bool cachePar)
 void Book :: ensureToc()
 {
 	if(tocReady) return;
+	if(loadTocEntries()) {
+		tocReady = true;
+		return;
+	}
 	buildFallbackToc();
 }
 
@@ -750,7 +757,7 @@ void Book :: bookmarkMenu()
 
 void Book :: drawBookmarkMenu()
 {
-	renderer::setTopScreenMirror(true);
+	renderer::setTopScreenMirror(false);
 	prbar = progressbar();
 	if(bookmarks.find(current_page) == bookmarks.end()) setMark.setText(SAY2(set));
 	else setMark.setText(SAY2(remove));
@@ -871,7 +878,9 @@ bool Book :: menu()
 			i++;
 			if(i > scBoth) i = scTop;
 			settings::scrConf  = scrConfig(i);
-			drawMenu(false);
+			current_page.line_num = 0;
+			clearParagraphCache();
+			drawMenu();
 			settingsDirty = true;
 			string o;
 			switch(settings::scrConf) {
@@ -1000,7 +1009,7 @@ void Book :: drawMenu(bool recache)
 	->push(SAY(sharp))
 	->push(SAY(language));
 	draw_page(true, recache);
-	renderer::setTopScreenMirror(true);
+	renderer::setTopScreenMirror(false);
 	renderer::clearScreens(settings::bgCol, bottom_scr);
 	menuGrid.draw();
 	if(settings::lowLightMode()) menuGrid.print(SAY(colors), SAY2(invert));
@@ -1046,7 +1055,7 @@ string fileReq(const string& path)
 
 	vector<button> buttons;
 	int peny = 0;
-	renderer::setTopScreenMirror(true);
+	renderer::setTopScreenMirror(false);
 	renderer::clearScreens(settings::bgCol);
 
 	while ((ent = readdir(dir)) != NULL) {

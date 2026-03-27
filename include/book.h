@@ -65,18 +65,19 @@ public:
 		bookmarkCursor = 0;
 		marksDirty = false;
 		marksSaveFrames = 0;
-		paragraphCache.resize(6);
+		paragraphCache.resize(12);
 	}
 protected:
 	string bookFile, encname;
 	bookmark current_page;
 	std::set<bookmark> bookmarks;
 	vector<toc_entry> tocEntries;
-	bool tocReady;
-	virtual void parse() = 0;
-	virtual void parag_str (int parag_num) = 0;
-	virtual void refreshCachedParagraph(paragrath&) {}
-	void fetch_paragrath (int parag_num) {
+		bool tocReady;
+		virtual void parse() = 0;
+		virtual void parag_str (int parag_num) = 0;
+		virtual void refreshCachedParagraph(paragrath&) {}
+		virtual bool loadTocEntries() { return false; }
+		void fetch_paragrath (int parag_num) {
 		if(tryLoadCachedParagraph(parag_num)) return;
 		parag_str (parag_num);
 		parsePar();

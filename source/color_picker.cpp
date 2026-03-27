@@ -114,7 +114,7 @@ void colToP_sv(Color& c, pallete& p)
 void Book :: colorPicker()
 {
 	using namespace screens;
-	renderer::setTopScreenMirror(true);
+	renderer::setTopScreenMirror(false);
 	int third = screens::dimY / 3;
 	int offx = (layoutX() - dimY)/2 + (screens::dimX % third)/2;
 	int offy = (layoutY() - dimY)/2 + (screens::dimX % third)/2;
@@ -183,7 +183,7 @@ void Book :: colorPicker()
 
 void Book :: sharpness()
 {
-	renderer::setTopScreenMirror(true);
+	renderer::setTopScreenMirror(false);
 	u32 height = buttonFontSize * 6;
 	string titles[] = {"Swap RGB", "Top swap", "Normal", "Bottom swap", SAY2(ok)};
 	u32 width = renderer::strWidth(eUtf8, titles[1],0 ,0, buttonFontSize);
