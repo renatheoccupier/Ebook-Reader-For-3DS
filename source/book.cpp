@@ -309,9 +309,11 @@ void drawTopContextOverlay(const string& bookTitle, const string& modeTitle, con
 		drawOverlayTextBlock(left + 8, summaryY1 + 5, right - left - 16, summaryText, 10, 1);
 	}
 
-	renderer::fillRect(left, footerY1, right, footerY2, Blend(28), top_scr);
-	renderer::rect(left, footerY1, right, footerY2, top_scr);
-	drawOverlayTextBlock(left + 8, footerY1 + 4, right - left - 16, footerText, 10, 1);
+	if(!footerText.empty()) {
+		renderer::fillRect(left, footerY1, right, footerY2, Blend(28), top_scr);
+		renderer::rect(left, footerY1, right, footerY2, top_scr);
+		drawOverlayTextBlock(left + 8, footerY1 + 4, right - left - 16, footerText, 10, 1);
+	}
 	renderer::printClock(top_scr, true);
 }
 
@@ -928,10 +930,7 @@ void Book :: drawBookmarkMenu()
 	sprintf(countBuf, "%lu items", (unsigned long)totalItems);
 	const string summaryText = progressLabel(current_page.parag_num, total_paragraths()) + " | " +
 		screenModeLabel() + " | " + countBuf;
-	const string footerText = showContents
-		? string("Left/Right switches tabs. Select or Right opens the highlighted chapter.")
-		: string("Set toggles the current page. Up/Down moves. Select opens the highlighted bookmark.");
-	drawTopContextOverlay(noPath(bookFile), showContents ? string("Contents") : string("Bookmarks"), detailText, summaryText, footerText);
+	drawTopContextOverlay(noPath(bookFile), showContents ? string("Contents") : string("Bookmarks"), detailText, summaryText, string());
 
 	if(*activeScroll > 0) listUp.draw();
 	if(*activeScroll + bookmarkVisible < totalItems) listDown.draw();

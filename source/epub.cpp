@@ -22,6 +22,8 @@ namespace
 typedef std::map<string, unz_file_pos> zip_index_map;
 const u32 kOpenProgressUpdateStep = 8u;
 const u32 kMaxImageEntryBytes = 8u * 1024u * 1024u;
+const u32 kMaxChapterEntryBytes = 6u * 1024u * 1024u;
+const u32 kMaxTotalChapterBytes = 24u * 1024u * 1024u;
 
 bool buildZipIndex(unzFile zip, zip_index_map& index)
 {
@@ -608,6 +610,17 @@ void epub_book :: parse()
 	}
 	delete[] buf;
 	buf = NULL;
+
+	u32 totalChapterBytes = 0;
+	for(u32 i = 0; i < chapter_files.size(); ++i) {
+		u32 chapterSize = 0;
+		if(!zipEntrySize(archive, chapter_files[i], chapterSize, &zip_index)) continue;
+		if(chapterSize > kMaxChapterEntryBytes)
+			bsod("epub_book::parse:Chapter is too large for 3DS memory.\nSplit or optimize this EPUB.");
+		if(totalChapterBytes > kMaxTotalChapterBytes - chapterSize)
+			bsod("epub_book::parse:Book is too large for this 3DS build.\nSplit or optimize this EPUB.");
+		totalChapterBytes += chapterSize;
+	}
 
 	renderer::clearScreens(0);
 	push_it = true;

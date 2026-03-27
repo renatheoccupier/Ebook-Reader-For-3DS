@@ -947,15 +947,13 @@ void file_browser :: drawPreview()
 	const int clockTop = statusTop();
 	const int leftPad = 10;
 	const int rightPad = width - 10;
-	const int footerY1 = clockTop - 28;
-	const int footerY2 = clockTop - 4;
 	const bool portrait = topPreviewPortrait(width);
 	int previewX1, previewY1, previewX2, previewY2;
 	previewFrameRect(width, clockTop, previewX1, previewY1, previewX2, previewY2);
 	const int detailX1 = portrait ? 12 : 156;
 	const int detailX2 = width - 12;
 	const int detailY1 = portrait ? (previewY2 + 10) : previewY1;
-	const int detailY2 = portrait ? (footerY1 - 8) : 136;
+	const int detailY2 = portrait ? (clockTop - 8) : 136;
 	const int metaY1 = portrait ? detailY1 : 144;
 	const int metaY2 = portrait ? detailY2 : previewY2;
 
@@ -1018,10 +1016,6 @@ void file_browser :: drawPreview()
 		}
 	}
 
-	renderer::fillRect(leftPad, footerY1, rightPad, footerY2, Blend(28), top_scr);
-	renderer::rect(leftPad, footerY1, rightPad, footerY2, top_scr);
-	drawWrappedText(top_scr, leftPad + 8, footerY1 + 4, rightPad - leftPad - 16,
-		portrait ? "Up/Down move  A open  B back" : "Up/Down move  A/Right open  B/Left back", 10, 1);
 	renderer::printClock(top_scr, true);
 }
 
@@ -1108,7 +1102,7 @@ string file_browser :: run()
 		int down = keysDown();
 		if(!down) continue;
 
-		if(down & (KEY_B | KEY_LEFT | KEY_L)) {
+		if(down & rKey(rLeft)) {
 			if(path != sdRootPath()) {
 				resetPreview();
 				path.erase(path.find_last_of('/', path.size() - 2) + 1);
@@ -1120,17 +1114,17 @@ string file_browser :: run()
 			resetPreview();
 			return string();
 		}
-		if(down & KEY_UP){
+		if(down & rKey(rUp)){
 			if(flist.empty() || 0 == cursor) continue;
 			--cursor;
 			upd();
 		}
-		else if(down & KEY_DOWN){
+		else if(down & rKey(rDown)){
 			if(flist.empty() || cursor >= int(flist.size()) - 1) continue;
 			++cursor;
 			upd();
 		}
-		else if(down & (KEY_A | KEY_RIGHT | KEY_R)) {
+		else if(down & rKey(rRight)) {
 			const string selected = activateCursor();
 			if(!selected.empty()) {
 				saveBrowserState(path, pos, cursor);

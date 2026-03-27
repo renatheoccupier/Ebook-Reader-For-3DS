@@ -157,12 +157,12 @@ grid :: grid(u32 it) : iter(it)
 	const int height = third - 14, sp = (dimX - dimY) / 2;
 	int x1 = 5, y1 = (dimY - height) / 2, x2 = sp - 5, y2 = (dimY + height) / 2;
 	if(settings::layout == d0 || settings::layout == d180) {
-		less = button("", x1, y1, x2, y2);
-		more = button("", dimX - x2, y1, dimX - x1, y2);
+		less = button("<", x1, y1, x2, y2);
+		more = button(">", dimX - x2, y1, dimX - x1, y2);
 	}
 	else {
-		less = button("", y1, x1, y2, x2);
-		more = button("", y1, dimX - x2, y2, dimX - x1);
+		less = button("<", 10, 6, layoutX() / 2 - 6, 26, 12);
+		more = button(">", layoutX() / 2 + 6, 6, layoutX() - 10, 26, 12);
 	}
 
 	const bool portrait = layoutY() > layoutX();
@@ -203,11 +203,13 @@ const string* grid :: update()
 		iter += 9;
 		renderer::clearScreens(settings::bgCol, bottom_scr);
 		draw();
+		return 0;
 	}
 	if(less.touched() && iter > 0) {
 		iter -= (iter >= 9) ? 9 : iter;
 		renderer::clearScreens(settings::bgCol, bottom_scr);
 		draw();
+		return 0;
 	}
 	
 	for(u32 i = iter; i < cells.size() && i < iter + 9; i++)
