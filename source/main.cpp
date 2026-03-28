@@ -3,6 +3,7 @@
 #include "settings.h"
 #include "button.h"
 #include "file_browser.h"
+#include "controls.h"
 #include "utf8.h"
 
 #include <png.h>
@@ -23,6 +24,7 @@ const string kMenuTitle("EBook Reader");
 const string kMenuSubtitle("Nintendo 3DS EPUB Library");
 vector<button> gMenuButtons;
 vector<const string*> gMenuActions;
+int gMenuCursor = 0;
 vector<u8> gMenuArtRgba;
 u32 gMenuArtWidth = 0;
 u32 gMenuArtHeight = 0;
@@ -191,56 +193,42 @@ void drawMenuButtonStrip()
 	const int cardX2 = width - 12;
 	const int cardY1 = 14;
 	const int cardY2 = height - 14;
-	const int buttonHeight = portrait ? 52 : 48;
-	const int gap = 12;
+	const int headerY2 = 48;
+	const int rowHeight = portrait ? 34 : 30;
+	const int gap = 6;
+	const int listX1 = cardX1 + 8;
+	const int listX2 = cardX2 - 8;
+	int rowY = headerY2 + 10;
 	const string lead = canResume
-		? string("Resume your latest EPUB or open the library.")
-		: string("Open Files to browse sdmc:/books/ and app books.");
+		? string("Resume or browse the library.")
+		: string("Browse sdmc:/books/ and app books.");
 
 	renderer::fillRect(cardX1, cardY1, cardX2, cardY2, Blend(12), bottom_scr);
 	renderer::rect(cardX1, cardY1, cardX2, cardY2, bottom_scr);
-	renderer::fillRect(cardX1, cardY1, cardX2, cardY1 + 34, Blend(24), bottom_scr);
-	renderer::printStr(eUtf8, bottom_scr, cardX1 + 10, cardY1 + 18, "Start Menu", 0, 0, 14);
-	renderer::printStr(eUtf8, bottom_scr, cardX1 + 10, cardY1 + 31, lead, 0, 0, portrait ? 9 : 10);
+	renderer::fillRect(cardX1, cardY1, cardX2, headerY2, Blend(24), bottom_scr);
+	renderer::printStr(eUtf8, bottom_scr, cardX1 + 10, cardY1 + 18, "Home", 0, 0, 14);
+	renderer::printStr(eUtf8, bottom_scr, cardX1 + 10, cardY1 + 31, lead, 0, 0, portrait ? 8 : 9);
 
-	if(canResume && !portrait) {
-		const int buttonWidth = MIN(144, (width - 52) / 2);
-		const int left = (width - (buttonWidth * 2 + gap)) / 2;
-		const int top = cardY1 + 58;
-		button resume("Resume", left, top, left + buttonWidth, top + buttonHeight, 16);
-		resume.enableAutoFit(12);
+	if(canResume) {
+		button resume("Resume", listX1, rowY, listX2, rowY + rowHeight, 14);
+		resume.enableAutoFit(10);
 		gMenuButtons.push_back(resume);
 		gMenuActions.push_back(SAY(resume));
-		button files("Files", left + buttonWidth + gap, top, left + buttonWidth * 2 + gap, top + buttonHeight, 16);
-		files.enableAutoFit(12);
-		gMenuButtons.push_back(files);
-		gMenuActions.push_back(SAY(files));
-	}
-	else {
-		const int count = canResume ? 2 : 1;
-		const int sidePad = portrait ? 34 : 26;
-		const int buttonWidth = portrait ? MAX(120, width - sidePad * 2) : MIN(width - 40, 220);
-		const int left = MAX(sidePad, (width - buttonWidth) / 2);
-		const int totalHeight = count * buttonHeight + (count - 1) * gap;
-		int top = portrait ? MAX(cardY1 + 52, (height - totalHeight) / 2) : MAX(cardY1 + 56, height - totalHeight - 42);
-
-		if(canResume) {
-			button resume("Resume", left, top, left + buttonWidth, top + buttonHeight, 16);
-			resume.enableAutoFit(12);
-			gMenuButtons.push_back(resume);
-			gMenuActions.push_back(SAY(resume));
-			top += buttonHeight + gap;
-		}
-
-		button files("Files", left, top, left + buttonWidth, top + buttonHeight, 16);
-		files.enableAutoFit(12);
-		gMenuButtons.push_back(files);
-		gMenuActions.push_back(SAY(files));
+		rowY += rowHeight + gap;
 	}
 
-	renderer::fillRect(cardX1 + 8, cardY2 - 42, cardX2 - 8, cardY2 - 8, Blend(20), bottom_scr);
-	renderer::rect(cardX1 + 8, cardY2 - 42, cardX2 - 8, cardY2 - 8, bottom_scr);
-	renderer::printStr(eUtf8, bottom_scr, cardX1 + 16, cardY2 - 22, "Tap or press A / Right. Start exits.", 0, 0, portrait ? 8 : 9);
+	button files("Files", listX1, rowY, listX2, rowY + rowHeight, 14);
+	files.enableAutoFit(10);
+	gMenuButtons.push_back(files);
+	gMenuActions.push_back(SAY(files));
+
+	if(gMenuButtons.empty()) gMenuCursor = 0;
+	else clamp(gMenuCursor, 0, int(gMenuButtons.size()) - 1);
+
+	if(!gMenuButtons.empty()) {
+		const int highlightY = headerY2 + 10 + gMenuCursor * (rowHeight + gap);
+		renderer::fillRect(listX1 + 1, highlightY + 1, listX2 - 1, highlightY + rowHeight - 1, Blend(72), bottom_scr);
+	}
 
 	for(u32 i = 0; i < gMenuButtons.size(); ++i)
 		gMenuButtons[i].draw();
@@ -384,14 +372,44 @@ int main(int argc, char* argv[])
 		scanKeys();
 		const int down = keysDown();
 		if(down & KEY_START) break;
-		if(down & (KEY_A | KEY_RIGHT | KEY_R)) {
-			browseLoop();
-			if(appShouldExit()) break;
+		if(down & rKey(rUp)) {
+			if(gMenuCursor > 0) {
+				--gMenuCursor;
+				drawMenuButtonStrip();
+			}
+			continue;
+		}
+		if(down & rKey(rDown)) {
+			if(gMenuCursor + 1 < int(gMenuButtons.size())) {
+				++gMenuCursor;
+				drawMenuButtonStrip();
+			}
+			continue;
+		}
+		if(down & rKey(rRight)) {
+			if(!gMenuButtons.empty()) {
+				const string* t = gMenuActions[gMenuCursor];
+				if(SAY(files) == t) {
+					waitForInputRelease();
+					browseLoop();
+				}
+				else if(SAY(resume) == t && book_ok(settings::recent_book)) {
+					waitForInputRelease();
+					if(appShouldExit()) break;
+					settings::layout = gReadingLayout;
+					openBook(settings::recent_book);
+					gReadingLayout = settings::layout;
+					drawMenu();
+				}
+				if(appShouldExit()) break;
+			}
 			continue;
 		}
 		if(!(down & KEY_TOUCH)) continue;
 		for(u32 i = 0; i < gMenuButtons.size(); ++i) {
 			if(!gMenuButtons[i].touched()) continue;
+			gMenuCursor = i;
+			drawMenuButtonStrip();
 			const string* t = gMenuActions[i];
 			if(SAY(files) == t) {
 				waitForInputRelease();

@@ -1,6 +1,6 @@
 ﻿Files
 Resume
-Backlight
+Brightness
 Encoding
 Close
 Justify

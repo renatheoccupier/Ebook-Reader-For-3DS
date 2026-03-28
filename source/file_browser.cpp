@@ -38,9 +38,7 @@ const u32 kPreviewCacheEntries = 12u;
 const u32 kPreviewPathCacheEntries = 16u;
 const bool kPreviewCoversEnabled = true;
 const int kScrollbarFlashFrames = 30;
-button gBrowserBackButton;
-button gBrowserOpenButton;
-button gBrowserMenuButton;
+button gBrowserHomeButton;
 
 string gLastBrowserPath;
 int gLastBrowserPos = 0;
@@ -87,7 +85,7 @@ void previewFrameRect(int width, int bottomLimit, int& x1, int& y1, int& x2, int
 {
 	x1 = 12;
 	x2 = width - 12;
-	y1 = topPreviewPortrait(width) ? 64 : 58;
+	y1 = topPreviewPortrait(width) ? 40 : 36;
 	y2 = bottomLimit;
 }
 
@@ -896,8 +894,8 @@ void file_browser :: showPreview(const string& file_name)
 		const int width = renderer::screenTextWidth(top_scr) - 1;
 		int frameX1, frameY1, frameX2, frameY2;
 		previewFrameRect(width, renderer::screenTextHeight(top_scr) - 12, frameX1, frameY1, frameX2, frameY2);
-		const int innerWidth = frameX2 - frameX1 - 10;
-		const int innerHeight = frameY2 - frameY1 - 10;
+		const int innerWidth = frameX2 - frameX1 - 4;
+		const int innerHeight = frameY2 - frameY1 - 4;
 		if(innerWidth > 24 && innerHeight > 24 &&
 			!tryLoadPreviewCache(file_name, innerWidth, innerHeight, previewPixels, previewWidth, previewHeight, previewHasImage)) {
 			previewHasImage = loadPreviewImage(file_name, innerWidth, innerHeight, previewPixels, previewWidth, previewHeight);
@@ -986,8 +984,8 @@ void file_browser :: drawPreview()
 	const bool portrait = topPreviewPortrait(width);
 	int previewX1, previewY1, previewX2, previewY2;
 	previewFrameRect(width, height - 14, previewX1, previewY1, previewX2, previewY2);
-	const int titleY1 = 14;
-	const int titleY2 = portrait ? 52 : 48;
+	const int titleY1 = 8;
+	const int titleY2 = portrait ? 30 : 28;
 	renderer::fillRect(leftPad, titleY1, rightPad, titleY2, Blend(22), top_scr);
 	renderer::rect(leftPad, titleY1, rightPad, titleY2, top_scr);
 	renderer::fillRect(previewX1, previewY1, previewX2, previewY2, Blend(16), top_scr);
@@ -1015,10 +1013,10 @@ void file_browser :: drawPreview()
 				"Loading preview" + loadingDots(previewAnimTick), 10, 1);
 		}
 		else if(previewHasImage && !previewPixels.empty()) {
-			const int innerX1 = previewX1 + 5;
-			const int innerY1 = previewY1 + 5;
-			const int innerX2 = previewX2 - 5;
-			const int innerY2 = previewY2 - 5;
+			const int innerX1 = previewX1 + 2;
+			const int innerY1 = previewY1 + 2;
+			const int innerX2 = previewX2 - 2;
+			const int innerY2 = previewY2 - 2;
 			const int boxW = innerX2 - innerX1 + 1;
 			const int boxH = innerY2 - innerY1 + 1;
 			const int drawX = innerX1 + (boxW - previewWidth) / 2;
@@ -1104,31 +1102,21 @@ u16 file_browser :: draw(bool showScrollbar)
 		pen += rowHeight;
 	}
 	const u16 visible = i - pos;
-	if(showScrollbar && visible < flist.size() && flist.size()) {
+	if(showScrollbar && flist.size()) {
 		const int scrollX1 = listX2 + 6;
 		const int scrollX2 = headerX2 - 2;
 		renderer::rect(scrollX1, listY1, scrollX2, listY2, bottom_scr);
-		const float size = float(visible) / flist.size();
-		const float posf = float(pos) / (flist.size() - visible);
+		const float size = MIN(1.0f, float(MAX(1, int(visible))) / flist.size());
+		const float posf = (flist.size() > visible) ? float(pos) / (flist.size() - visible) : 0.0f;
 		const int trackHeight = listY2 - listY1;
 		const int low = listY1 + int(posf * (1.0f - size) * trackHeight);
 		const int high = MIN(listY2, low + MAX(10, int(size * trackHeight)));
 		renderer::fillRect(scrollX1 + 1, low + 1, scrollX2 - 1, high - 1, Blend(128), bottom_scr);
 	}
 
-	const int footerGap = 8;
-	const int footerButtonWidth = (width - pad * 2 - footerGap * 2) / 3;
-	gBrowserBackButton = button("Back", pad, footerY1, pad + footerButtonWidth, footerY2, 12);
-	gBrowserOpenButton = button("Open", pad + footerButtonWidth + footerGap, footerY1,
-		pad + footerButtonWidth * 2 + footerGap, footerY2, 12);
-	gBrowserMenuButton = button("Start Menu", pad + (footerButtonWidth + footerGap) * 2, footerY1,
-		width - pad, footerY2, 12);
-	gBrowserBackButton.enableAutoFit(9);
-	gBrowserOpenButton.enableAutoFit(9);
-	gBrowserMenuButton.enableAutoFit(9);
-	gBrowserBackButton.draw();
-	gBrowserOpenButton.draw();
-	gBrowserMenuButton.draw();
+	gBrowserHomeButton = button("Home", pad, footerY1, width - pad, footerY2, 12);
+	gBrowserHomeButton.enableAutoFit(9);
+	gBrowserHomeButton.draw();
 
 	return i - pos;
 }
@@ -1140,9 +1128,10 @@ void file_browser :: upd(bool refreshScrollbar)
 	syncPreviewToCursor();
 	saveBrowserState(path, pos, cursor);
 	const bool needsScroll = browserNeedsScrollbar(flist.size());
-	if(!needsScroll) scrollbarFrames = 0;
-	else if(refreshScrollbar) scrollbarFrames = kScrollbarFlashFrames;
-	num = draw(scrollbarFrames > 0);
+	(void)needsScroll;
+	(void)refreshScrollbar;
+	scrollbarFrames = kScrollbarFlashFrames;
+	num = draw(true);
 	drawPreview();
 }
 
@@ -1169,11 +1158,6 @@ string file_browser :: run()
 			if(0 == (previewAnimTick % 12u)) drawPreview();
 		}
 		const bool previewUpdated = tickPreview();
-		if(scrollbarFrames > 0) {
-			--scrollbarFrames;
-			if(0 == scrollbarFrames)
-				draw(false);
-		}
 		if(previewUpdated) drawPreview();
 		scanKeys();
 		int down = keysDown();
@@ -1216,31 +1200,7 @@ string file_browser :: run()
 			upd();
 		}
 		else if(down & KEY_TOUCH) {
-			if(gBrowserBackButton.touched()) {
-				if(path != sdRootPath()) {
-					resetPreview();
-					path.erase(path.find_last_of('/', path.size() - 2) + 1);
-					cd();
-					upd();
-				}
-				else {
-					saveBrowserState(path, pos, cursor);
-					resetPreview();
-					return string();
-				}
-				continue;
-			}
-			if(gBrowserOpenButton.touched()) {
-				const string selected = activateCursor();
-				if(!selected.empty()) {
-					saveBrowserState(path, pos, cursor);
-					resetPreview();
-					return selected;
-				}
-				upd();
-				continue;
-			}
-			if(gBrowserMenuButton.touched()) {
+			if(gBrowserHomeButton.touched()) {
 				saveBrowserState(path, pos, cursor);
 				resetPreview();
 				return string();

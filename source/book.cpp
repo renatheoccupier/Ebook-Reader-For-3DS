@@ -313,30 +313,24 @@ string brightnessLabel(int level)
 	return kLevels[level];
 }
 
-void drawTopContextOverlay(const string& bookTitle, const string& heading, const string& detailText, const string& summaryText, const string& footerText)
+string numberLabel(int value)
 {
-	const int width = renderer::screenTextWidth(top_scr) - 1;
-	const int height = renderer::screenTextHeight(top_scr) - 1;
-	const int pad = 12;
-	const int right = width - pad;
-	const int heroY1 = 12;
-	const int heroY2 = 48;
-	const int bodyY1 = 60;
-	const int bodyY2 = height - 16;
-	const int footerY1 = bodyY2 - 28;
+	char buf[16];
+	sprintf(buf, "%d", value);
+	return buf;
+}
 
-	renderer::fillRect(pad, heroY1, right, heroY2, Blend(28), top_scr);
-	renderer::rect(pad, heroY1, right, heroY2, top_scr);
-	renderer::printStr(eUtf8, top_scr, pad + 10, heroY1 + 20, heading, 0, 0, 17);
-	renderer::printStr(eUtf8, top_scr, right - MIN(150, renderer::strWidth(eUtf8, bookTitle, 0, 0, 9) + 10), heroY1 + 32, bookTitle, 0, 0, 9);
-
-	renderer::fillRect(pad, bodyY1, right, bodyY2, Blend(18), top_scr);
-	renderer::rect(pad, bodyY1, right, bodyY2, top_scr);
-	drawWrappedText(top_scr, pad + 10, bodyY1 + 14, right - pad - 20, detailText, 11, 3);
-	drawWrappedText(top_scr, pad + 10, bodyY1 + 68, right - pad - 20, summaryText, 10, 3);
-	renderer::fillRect(pad + 8, footerY1, right - 8, bodyY2 - 8, Blend(24), top_scr);
-	renderer::rect(pad + 8, footerY1, right - 8, bodyY2 - 8, top_scr);
-	drawWrappedText(top_scr, pad + 16, footerY1 + 8, right - pad - 32, footerText, 9, 2);
+void drawSettingToast(const string& text)
+{
+	const int width = screens::layoutX();
+	const int x1 = 12;
+	const int x2 = width - 12;
+	const int y2 = screens::layoutY() - 6;
+	const int y1 = y2 - 30;
+	renderer::fillRect(x1, y1, x2, y2, Blend(20), bottom_scr);
+	renderer::rect(x1, y1, x2, y2, bottom_scr);
+	drawWrappedText(bottom_scr, x1 + 8, y1 + 7, x2 - x1 - 16, text, 9, 2);
+	renderer::printClock(bottom_scr, true);
 }
 
 int lineScrollForwardKey()
@@ -1198,9 +1192,17 @@ bool Book :: menu()
 	bool running = true;
 	bool settingsDirty = false;
 	bool exitBook = false;
+	int statusFrames = 0;
+	string statusText;
+	void (*setStatusRef)(void) = NULL;
+	(void)setStatusRef;
 	while((running = pumpPowerManagement())) {
 		swiWaitForVBlank();
 		scanKeys();
+		if(statusFrames > 0) {
+			--statusFrames;
+			if(0 == statusFrames) drawMenu(false);
+		}
 		int down = keysDown();
 		if(down & rKey(rDown)) break;
 		if(down & rKey(rLeft)) {
@@ -1211,6 +1213,11 @@ bool Book :: menu()
 		}
 		
 		if(!(down & KEY_TOUCH)) continue;
+		const auto setStatus = [&](const string& text) {
+			statusText = text;
+			statusFrames = 60;
+			drawSettingToast(statusText);
+		};
 		
 		const string* t = menuGrid.update();
 		if(SAY(rotate) == t) {
@@ -1222,21 +1229,26 @@ bool Book :: menu()
 			clearParagraphCache();
 			drawMenu();
 			settingsDirty = true;
+			setStatus(string(SAY2(rotate)) + ": " + layoutLabel());
 		}
 		else if(SAY(close) == t) {
 			exitBook = true;
 			break;
 		}
 		else if(SAY(light) == t) {
-			if(brightnessMenu()) settingsDirty = true;
+			if(brightnessMenu()) {
+				settingsDirty = true;
+				drawMenu(false);
+				setStatus(string(SAY2(light)) + ": " + brightnessLabel(settings::brightness));
+			}
 			if(appShouldExit()) return true;
-			drawMenu(false);
 		}
 		else if(SAY(invert) == t) {
 			settings::setLowLightMode(!settings::lowLightMode());
 			clearParagraphCache();
 			drawMenu(false);
 			settingsDirty = true;
+			setStatus(string(SAY2(invert)) + ": " + boolLabel(settings::lowLightMode()));
 		}
 		else if(SAY(screens) == t) {
 			int i = settings::scrConf;
@@ -1247,13 +1259,7 @@ bool Book :: menu()
 			clearParagraphCache();
 			drawMenu();
 			settingsDirty = true;
-			string o;
-			switch(settings::scrConf) {
-				case scTop: o = *SAY(top); break;
-				case scBottom: o = *SAY(bottom); break;
-				case scBoth: o = *SAY(both); break;
-			}
-			menuGrid.print(SAY(screens), o);
+			setStatus(string(SAY2(screens)) + ": " + screenModeLabel());
 		}
 		else if(SAY(font) == t) {
 			renderer::changeFont();
@@ -1261,7 +1267,7 @@ bool Book :: menu()
 			clearParagraphCache();
 			drawMenu();
 			settingsDirty = true;
-			menuGrid.print(SAY(font), settings::font);
+			setStatus(string(SAY2(font)) + ": " + noExt(settings::font));
 		}
 		else if(SAY(colors) == t) {
 			settings::setNightMode(!settings::nightMode());
@@ -1269,6 +1275,7 @@ bool Book :: menu()
 			clearParagraphCache();
 			drawMenu(false);
 			settingsDirty = true;
+			setStatus(string(SAY2(colors)) + ": " + themeLabel());
 		}
 		else if(SAY(style) == t) {
 			using settings::tech;
@@ -1282,6 +1289,7 @@ bool Book :: menu()
 			clearParagraphCache();
 			drawMenu(false);
 			settingsDirty = true;
+			setStatus(string(SAY2(style)) + ": " + styleLabel());
 		}
 		else if(SAY(sharp) == t) {
 			sharpness();
@@ -1292,11 +1300,13 @@ bool Book :: menu()
 			settings::pbar = !settings::pbar;
 			drawMenu(false);
 			settingsDirty = true;
+			setStatus(string(SAY2(pbar)) + ": " + boolLabel(settings::pbar));
 		}
 		else if(SAY(justify) == t) {
 			settings::justify = !settings::justify;
 			drawMenu(false);
 			settingsDirty = true;
+			setStatus(string(SAY2(justify)) + ": " + boolLabel(settings::justify));
 		}
 		else if(SAY(size) == t) {
 			using settings::font_size;
@@ -1308,9 +1318,7 @@ bool Book :: menu()
 			clearParagraphCache();
 			drawMenu();
 			settingsDirty = true;
-			char buf[5];
-			sprintf(buf, "%d", settings::font_size);
-			menuGrid.print(SAY(size), string(buf));
+			setStatus(string(SAY2(size)) + ": " + numberLabel(settings::font_size));
 		}
 		else if(SAY(gamma) == t) {
 			using settings::gamma;
@@ -1320,6 +1328,7 @@ bool Book :: menu()
 			if(old == gamma) continue;
 			drawMenu(false);
 			settingsDirty = true;
+			setStatus(string(SAY2(gamma)) + ": " + numberLabel(settings::gamma));
 		}
 		else if(SAY(gap) == t) {
 			using settings::line_gap;
@@ -1331,6 +1340,7 @@ bool Book :: menu()
 			clearParagraphCache();
 			drawMenu();
 			settingsDirty = true;
+			setStatus(string(SAY2(gap)) + ": " + numberLabel(settings::line_gap));
 		}
 		else if(SAY(indent) == t) {
 			using settings::first_indent;
@@ -1342,12 +1352,14 @@ bool Book :: menu()
 			clearParagraphCache();
 			drawMenu();
 			settingsDirty = true;
+			setStatus(string(SAY2(indent)) + ": " + numberLabel(settings::first_indent));
 		}
 		else if(SAY(language) == t) {
 			translation();
 			if(appShouldExit()) return true;
 			drawMenu(false);
 			settingsDirty = true;
+			setStatus(string(SAY2(language)) + ": " + noExt(settings::translname));
 		}
 	}
 	if(settingsDirty) settings::save();
@@ -1376,37 +1388,9 @@ void Book :: drawMenu(bool recache)
 	->push(SAY(sharp))
 	->push(SAY(language));
 	draw_page(true, recache);
-	char fontBuf[16];
-	char gapBuf[8];
-	char indentBuf[8];
-	char gammaBuf[8];
-	char sizeBuf[8];
-	sprintf(fontBuf, "%dpx", settings::font_size);
-	sprintf(gapBuf, "%d", settings::line_gap);
-	sprintf(indentBuf, "%d", settings::first_indent);
-	sprintf(gammaBuf, "%d", settings::gamma);
-	sprintf(sizeBuf, "%d", settings::font_size);
-	const string detailText = string("Backlight ") + brightnessLabel(settings::brightness) +
-		" | " + themeLabel() + " theme | " + fontBuf + " | gap " + gapBuf + " | indent " + indentBuf;
-	const string summaryText = progressLabel(current_page.parag_num, total_paragraths()) +
-		" | rot " + layoutLabel() + " | " + screenModeLabel() + " | justify " + boolLabel(settings::justify) +
-		" | bar " + boolLabel(settings::pbar) + " | " + styleLabel();
-	drawTopContextOverlay(noExt(noPath(bookFile)), "Reading Settings", detailText, summaryText,
-		"Tap a tile to change it. Use the left or right half of +/- tiles. Down closes settings.");
 	renderer::setTopScreenMirror(false);
 	renderer::clearScreens(settings::bgCol, bottom_scr);
 	menuGrid.draw();
-	menuGrid.print(SAY(light), brightnessLabel(settings::brightness));
-	menuGrid.print(SAY(justify), boolLabel(settings::justify));
-	menuGrid.print(SAY(gamma), string(gammaBuf));
-	menuGrid.print(SAY(pbar), boolLabel(settings::pbar));
-	menuGrid.print(SAY(screens), screenModeLabel());
-	menuGrid.print(SAY(size), string(sizeBuf));
-	menuGrid.print(SAY(font), noExt(settings::font));
-	menuGrid.print(SAY(style), styleLabel());
-	menuGrid.print(SAY(gap), string(gapBuf));
-	menuGrid.print(SAY(indent), string(indentBuf));
-	menuGrid.print(SAY(colors), themeLabel());
 	setBacklightMode(blOverlay);
 }
 
@@ -1427,17 +1411,10 @@ bool Book :: brightnessMenu()
 
 	while(pumpPowerManagement()) {
 		draw_page(true, false);
-		const string detailText = string("Current level: ") + brightnessLabel(settings::brightness) +
-			". The hardware backlight updates immediately so you can judge the change on the console.";
-		const string summaryText = string("Level ") + brightnessLabel(settings::brightness) +
-			" | screen mode " + screenModeLabel() + " | theme " + themeLabel();
-		drawTopContextOverlay(noExt(noPath(bookFile)), "Backlight", detailText, summaryText,
-			"Use Left or Right to change the level. Tap Done or press Down to return to settings.");
-
 		renderer::clearScreens(settings::bgCol, bottom_scr);
 		renderer::fillRect(pad, 18, width - pad, 70, Blend(18), bottom_scr);
 		renderer::rect(pad, 18, width - pad, 70, bottom_scr);
-		renderer::printStr(eUtf8, bottom_scr, pad + 10, 36, "Adjust Brightness", 0, 0, 15);
+		renderer::printStr(eUtf8, bottom_scr, pad + 10, 36, "Adjust Brightness", 0, 0, 14);
 		renderer::printStr(eUtf8, bottom_scr, pad + 10, 58, brightnessLabel(settings::brightness), 0, 0, 11);
 
 		for(int i = 0; i < 4; ++i) {

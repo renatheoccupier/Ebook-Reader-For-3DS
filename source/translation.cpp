@@ -21,7 +21,7 @@ const string transPath = appTranslationsPath();
 */
 
 string locDict[LWord::totalWords] = {
-	"Files",	"Resume",	"Backlight",
+	"Files",	"Resume",	"Brightness",
 	"Encoding",	"Close",	"Justify",
 	"Low light",	"Thickness","Night",
 	"Screens",	"Rotate",	"Progress",
@@ -47,6 +47,7 @@ void loadTrans(string file)
 		if(!locDict[i].empty() && locDict[i][locDict[i].size() - 1] == '\r')
 			locDict[i].erase(locDict[i].size() - 1);
 	}
+	if(locDict[LWord::light] == "Backlight") locDict[LWord::light] = "Brightness";
 	if(locDict[LWord::invert] == "Invert") locDict[LWord::invert] = "Low light";
 	if(locDict[LWord::colors] == "Colors") locDict[LWord::colors] = "Night";
 }
