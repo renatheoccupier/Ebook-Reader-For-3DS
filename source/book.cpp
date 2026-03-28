@@ -330,7 +330,6 @@ void drawSettingToast(const string& text)
 	renderer::fillRect(x1, y1, x2, y2, Blend(20), bottom_scr);
 	renderer::rect(x1, y1, x2, y2, bottom_scr);
 	drawWrappedText(bottom_scr, x1 + 8, y1 + 7, x2 - x1 - 16, text, 9, 2);
-	renderer::printClock(bottom_scr, true);
 }
 
 int lineScrollForwardKey()
@@ -591,8 +590,7 @@ void Book :: previous_line()
 void Book :: draw_page(bool onlyTop, bool cachePar)
 {
 	renderer::setTopScreenMirror(false);
-	const backlightMode mode = (onlyTop && settings::scrConf == scTop) ? blReading
-		: (onlyTop ? blBoth : blReading);
+	const backlightMode mode = onlyTop ? blBoth : blReading;
 	setBacklightMode(mode);
 	
 	int line_num = current_page.line_num;
@@ -1374,8 +1372,8 @@ void Book :: drawMenu(bool recache)
 	menuGrid.push(SAY(close), 1)
 	->push(SAY(light))
 	->push(SAY(invert))
-	->push(SAY(justify))	
 	->push(SAY(rotate))
+	->push(SAY(justify))	
 	->push(SAY(gamma), 0 , true)
 	->push(SAY(pbar))
 	->push(SAY(screens))
@@ -1440,7 +1438,6 @@ bool Book :: brightnessMenu()
 		}
 
 		doneButton.draw();
-		renderer::printClock(bottom_scr, true);
 		setBacklightMode(blOverlay);
 
 		swiWaitForVBlank();

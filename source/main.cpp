@@ -29,6 +29,8 @@ vector<u8> gMenuArtRgba;
 u32 gMenuArtWidth = 0;
 u32 gMenuArtHeight = 0;
 bool gMenuArtTried = false;
+u32 gMenuTitleTick = 0;
+bool gMenuNeedsTitleMarquee = false;
 
 void waitForInputRelease()
 {
@@ -191,23 +193,22 @@ void drawMenuButtonStrip()
 	const bool canResume = book_ok(settings::recent_book);
 	const int cardX1 = 12;
 	const int cardX2 = width - 12;
-	const int cardY1 = 14;
-	const int cardY2 = height - 14;
-	const int headerY2 = 48;
-	const int rowHeight = portrait ? 34 : 30;
-	const int gap = 6;
-	const int listX1 = cardX1 + 8;
-	const int listX2 = cardX2 - 8;
-	int rowY = headerY2 + 10;
+	const int headerY1 = 12;
+	const int headerY2 = portrait ? 70 : 64;
+	const int actionY1 = headerY2 + 12;
+	const int rowHeight = portrait ? 40 : 34;
+	const int gap = 8;
+	const int listX1 = cardX1;
+	const int listX2 = cardX2;
+	int rowY = actionY1;
 	const string lead = canResume
 		? string("Resume or browse the library.")
 		: string("Browse sdmc:/books/ and app books.");
 
-	renderer::fillRect(cardX1, cardY1, cardX2, cardY2, Blend(12), bottom_scr);
-	renderer::rect(cardX1, cardY1, cardX2, cardY2, bottom_scr);
-	renderer::fillRect(cardX1, cardY1, cardX2, headerY2, Blend(24), bottom_scr);
-	renderer::printStr(eUtf8, bottom_scr, cardX1 + 10, cardY1 + 18, "Home", 0, 0, 14);
-	renderer::printStr(eUtf8, bottom_scr, cardX1 + 10, cardY1 + 31, lead, 0, 0, portrait ? 8 : 9);
+	renderer::fillRect(cardX1, headerY1, cardX2, headerY2, Blend(22), bottom_scr);
+	renderer::rect(cardX1, headerY1, cardX2, headerY2, bottom_scr);
+	renderer::printStr(eUtf8, bottom_scr, cardX1 + 10, headerY1 + 18, "Home", 0, 0, 15);
+	renderer::printStr(eUtf8, bottom_scr, cardX1 + 10, headerY1 + 36, lead, 0, 0, portrait ? 9 : 10);
 
 	if(canResume) {
 		button resume("Resume", listX1, rowY, listX2, rowY + rowHeight, 14);
@@ -226,13 +227,21 @@ void drawMenuButtonStrip()
 	else clamp(gMenuCursor, 0, int(gMenuButtons.size()) - 1);
 
 	if(!gMenuButtons.empty()) {
-		const int highlightY = headerY2 + 10 + gMenuCursor * (rowHeight + gap);
+		const int highlightY = actionY1 + gMenuCursor * (rowHeight + gap);
 		renderer::fillRect(listX1 + 1, highlightY + 1, listX2 - 1, highlightY + rowHeight - 1, Blend(72), bottom_scr);
 	}
 
 	for(u32 i = 0; i < gMenuButtons.size(); ++i)
 		gMenuButtons[i].draw();
-	renderer::printClock(bottom_scr, true);
+
+	const int footerY1 = rowY + rowHeight + 10;
+	const int footerY2 = height - 12;
+	if(footerY2 > footerY1) {
+		renderer::fillRect(cardX1, footerY1, cardX2, footerY2, Blend(14), bottom_scr);
+		renderer::rect(cardX1, footerY1, cardX2, footerY2, bottom_scr);
+		renderer::printStr(eUtf8, bottom_scr, cardX1 + 10, footerY1 + 16, "A/Right opens. B/Left backs out.", 0, 0, portrait ? 8 : 9);
+		renderer::printStr(eUtf8, bottom_scr, cardX1 + 10, footerY1 + 30, "Tap a button or press Start to exit.", 0, 0, portrait ? 8 : 9);
+	}
 }
 
 void drawMenuTopScreen()
@@ -246,6 +255,7 @@ void drawMenuTopScreen()
 	const string recentLabel = canResume
 		? noExt(noPath(settings::recent_book))
 		: string("No recent book yet. Open Files on the bottom screen to browse your EPUB library.");
+	gMenuNeedsTitleMarquee = false;
 
 	renderer::clearScreens(settings::bgCol, top_scr);
 	renderer::fillRect(0, 0, width, portrait ? 42 : 50, Blend(28), top_scr);
@@ -258,15 +268,29 @@ void drawMenuTopScreen()
 		renderer::rect(left, 70, right, height - 16, top_scr);
 		const bool hasArt = drawMenuArt(right - 134, 78, right - 18, height - 24);
 		const int textRight = hasArt ? right - 148 : right - 12;
-		drawCardTitle(left + 12, 92, "Recent Book");
-		drawCardValue(left + 12, 118, textRight - left, recentLabel, canResume ? 16 : 12, canResume ? 4 : 5);
+		drawCardTitle(left + 12, 92, "Current Book");
+		const int titleBoxY1 = 108;
+		const int titleBoxY2 = 144;
+		renderer::fillRect(left + 12, titleBoxY1, textRight, titleBoxY2, Blend(12), top_scr);
+		renderer::rect(left + 12, titleBoxY1, textRight, titleBoxY2, top_scr);
+		if(canResume)
+			gMenuNeedsTitleMarquee = renderer::drawMarqueeText(top_scr, left + 12, titleBoxY1, textRight, titleBoxY2, recentLabel, 14, gMenuTitleTick, 8);
+		else
+			drawCardValue(left + 16, 124, textRight - left - 12, recentLabel, 12, 4);
 	}
 	else {
 		renderer::fillRect(left, 60, right, height - 18, Blend(18), top_scr);
 		renderer::rect(left, 60, right, height - 18, top_scr);
-		drawCardTitle(left + 12, 82, "Recent Book");
-		drawCardValue(left + 12, 112, right - left - 24, recentLabel, canResume ? 11 : 10, canResume ? 3 : 4);
-		drawMenuArt(left + 16, 164, right - 16, height - 30);
+		drawCardTitle(left + 12, 82, "Current Book");
+		const int titleBoxY1 = 98;
+		const int titleBoxY2 = 132;
+		renderer::fillRect(left + 12, titleBoxY1, right - 12, titleBoxY2, Blend(12), top_scr);
+		renderer::rect(left + 12, titleBoxY1, right - 12, titleBoxY2, top_scr);
+		if(canResume)
+			gMenuNeedsTitleMarquee = renderer::drawMarqueeText(top_scr, left + 12, titleBoxY1, right - 12, titleBoxY2, recentLabel, 11, gMenuTitleTick, 6);
+		else
+			drawCardValue(left + 16, 112, right - left - 32, recentLabel, 10, 4);
+		drawMenuArt(left + 16, 146, right - 16, height - 30);
 	}
 }
 
@@ -286,6 +310,7 @@ void drawMenu()
 {
 	renderer::setTopScreenMirror(false);
 	renderer::clearScreens(settings::bgCol);
+	gMenuTitleTick = 0;
 	drawMenuTopScreen();
 	drawMenuButtonStrip();
 	setBacklightMode(blOverlay);
@@ -368,7 +393,10 @@ int main(int argc, char* argv[])
 	drawMenu();
 	while(pumpPowerManagement()) {
 		swiWaitForVBlank();
-		renderer::printClock(bottom_scr);
+		if(gMenuNeedsTitleMarquee) {
+			++gMenuTitleTick;
+			if(0 == (gMenuTitleTick % 6u)) drawMenuTopScreen();
+		}
 		scanKeys();
 		const int down = keysDown();
 		if(down & KEY_START) break;

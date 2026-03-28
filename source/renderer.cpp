@@ -31,6 +31,9 @@ static const u8 gamma067[32] = {0, 3, 5, 7, 8, 9, 10, 11, 13, 14, 15, 16, 16, 17
 namespace
 {
 
+static const u32 marqueeHoldSteps = 18;
+static const u32 marqueeFramesPerChar = 5;
+
 int textLimitX(scr_id scr)
 {
 	return screenTextWidth(scr) - 1;
@@ -39,6 +42,60 @@ int textLimitX(scr_id scr)
 inline u8 expand5(u8 value)
 {
 	return (value << 3) | (value >> 2);
+}
+
+u32 advanceChars(const string& str, u32 start, int count)
+{
+	const char* it = str.c_str() + start;
+	const char* end = str.c_str() + str.size();
+	for(int i = 0; i < count && it < end; ++i)
+		utf8::unchecked::next(it);
+	return it - str.c_str();
+}
+
+u32 clippedEnd(const string& str, u32 start, int width, u32 fontSize)
+{
+	int breakat = 0;
+	strWidth(eUtf8, str, start, 0, fontSize, fnormal, &breakat, width);
+	if(breakat <= 0) breakat = 1;
+	return advanceChars(str, start, breakat);
+}
+
+vector<u32> utf8Offsets(const string& str)
+{
+	vector<u32> offsets;
+	offsets.push_back(0);
+	const char* it = str.c_str();
+	const char* end = it + str.size();
+	while(it < end) {
+		utf8::unchecked::next(it);
+		offsets.push_back(it - str.c_str());
+	}
+	return offsets;
+}
+
+u32 marqueeStart(const string& str, int width, u32 fontSize, u32 marqueeStep)
+{
+	const vector<u32> offsets = utf8Offsets(str);
+	if(offsets.size() <= 1) return 0;
+
+	u32 endStart = offsets.size() - 2;
+	for(u32 i = 0; i + 1 < offsets.size(); ++i) {
+		if(strWidth(eUtf8, str, offsets[i], 0, fontSize) <= width) {
+			endStart = i;
+			break;
+		}
+	}
+	if(0 == endStart) return 0;
+
+	const u32 travelSteps = endStart * marqueeFramesPerChar;
+	const u32 cycle = marqueeHoldSteps + travelSteps + marqueeHoldSteps + travelSteps;
+	if(0 == cycle) return 0;
+	const u32 phase = marqueeStep % cycle;
+	if(phase < marqueeHoldSteps) return 0;
+	if(phase < marqueeHoldSteps + travelSteps) return (phase - marqueeHoldSteps) / marqueeFramesPerChar;
+	if(phase < marqueeHoldSteps + travelSteps + marqueeHoldSteps) return endStart;
+	return endStart - (phase - marqueeHoldSteps - travelSteps - marqueeHoldSteps) / marqueeFramesPerChar;
 }
 
 bool entryIsDirectory(const string& basePath, const dirent* ent)
@@ -543,6 +600,30 @@ int strWidth(Encoding enc, const string& str, u32 start, u32 end, u8 fontSize, f
 		old_gi = glyph_index;
 	}
 	return width;
+}
+
+bool drawMarqueeText(scr_id scr, int x1, int y1, int x2, int y2, const string& text, u32 fontSize, u32 marqueeStep, int pad)
+{
+	if(text.empty()) return false;
+	if(x2 < x1 || y2 < y1) return false;
+
+	const int innerX1 = x1 + MAX(0, pad);
+	const int innerX2 = x2 - MAX(0, pad);
+	if(innerX2 < innerX1) return false;
+
+	const int innerWidth = innerX2 - innerX1 + 1;
+	const int baselineY = y1 + fontSize - 1 + MAX(0, (y2 - y1 + 1 - int(fontSize)) / 2);
+	const int width = strWidth(eUtf8, text, 0, 0, fontSize);
+	if(width <= innerWidth) {
+		const int drawX = innerX1 + MAX(0, (innerWidth - width) / 2);
+		printStr(eUtf8, scr, drawX, baselineY, text, 0, 0, fontSize);
+		return false;
+	}
+
+	const u32 start = marqueeStart(text, innerWidth, fontSize, marqueeStep);
+	const u32 end = clippedEnd(text, start, innerWidth, fontSize);
+	printStr(eUtf8, scr, innerX1, baselineY, text, start, end, fontSize);
+	return true;
 }
 
 void rect(u16 x1, u16 y1, u16 x2, u16 y2, scr_id scr)

@@ -114,30 +114,33 @@ void drawOpenProgress(const string& bookFile, u32 current, u32 total)
 	renderer::clearScreens(settings::bgCol, bottom_scr);
 	const int panelX1 = 12;
 	const int panelX2 = screens::layoutX() - 12;
-	const int titleCardY1 = 18;
-	const int titleCardY2 = 86;
-	const int progressCardY1 = 98;
-	const int progressCardY2 = 174;
-	const int footerY1 = 186;
-	const int footerY2 = screens::layoutY() - 10;
+	const int titleCardY1 = 16;
+	const int titleCardY2 = 88;
+	const int progressCardY1 = 100;
+	const int progressCardY2 = 176;
+	const int footerY1 = 190;
+	const int footerY2 = screens::layoutY() - 12;
 
 	renderer::fillRect(panelX1, titleCardY1, panelX2, titleCardY2, Blend(18), bottom_scr);
 	renderer::rect(panelX1, titleCardY1, panelX2, titleCardY2, bottom_scr);
-	renderer::printStr(eUtf8, bottom_scr, panelX1 + 10, titleCardY1 + 18, "Opening Book", 0, 0, 17);
-	renderer::printStr(eUtf8, bottom_scr, panelX1 + 10, titleCardY1 + 40, compactBookTitle(noExt(noPath(bookFile)), 24), 0, 0, 11);
-	renderer::printStr(eUtf8, bottom_scr, panelX1 + 10, titleCardY1 + 58, ("Building index" + dots), 0, 0, 11);
+	renderer::printStr(eUtf8, bottom_scr, panelX1 + 10, titleCardY1 + 18, "Opening Book", 0, 0, 16);
+	renderer::fillRect(panelX1 + 10, titleCardY1 + 32, panelX2 - 10, titleCardY1 + 58, Blend(10), bottom_scr);
+	renderer::rect(panelX1 + 10, titleCardY1 + 32, panelX2 - 10, titleCardY1 + 58, bottom_scr);
+	renderer::drawMarqueeText(bottom_scr, panelX1 + 10, titleCardY1 + 32, panelX2 - 10, titleCardY1 + 58,
+		noExt(noPath(bookFile)), 11, current / kOpenProgressUpdateStep, 8);
+	renderer::printStr(eUtf8, bottom_scr, panelX1 + 10, titleCardY1 + 72, ("Building index" + dots), 0, 0, 10);
 
 	renderer::fillRect(panelX1, progressCardY1, panelX2, progressCardY2, Blend(10), bottom_scr);
 	renderer::rect(panelX1, progressCardY1, panelX2, progressCardY2, bottom_scr);
 	renderer::printStr(eUtf8, bottom_scr, panelX1 + 10, progressCardY1 + 18, "Chapter Progress", 0, 0, 10);
 	char progress[48];
 	sprintf(progress, "%lu / %lu chapters", (unsigned long)MIN(current, total), (unsigned long)total);
-	renderer::printStr(eUtf8, bottom_scr, panelX1 + 10, progressCardY1 + 44, progress, 0, 0, 16);
+	renderer::printStr(eUtf8, bottom_scr, panelX1 + 10, progressCardY1 + 44, progress, 0, 0, 15);
 
 	const int barX1 = panelX1 + 10;
 	const int barX2 = panelX2 - 10;
-	const int barY1 = progressCardY1 + 56;
-	const int barY2 = barY1 + 16;
+	const int barY1 = progressCardY1 + 58;
+	const int barY2 = barY1 + 14;
 	renderer::rect(barX1, barY1, barX2, barY2, bottom_scr);
 	if(total > 0) {
 		const int fillX2 = barX1 + int((u64)(barX2 - barX1) * MIN(current, total) / total);
@@ -145,9 +148,11 @@ void drawOpenProgress(const string& bookFile, u32 current, u32 total)
 			renderer::fillRect(barX1 + 1, barY1 + 1, fillX2, barY2 - 1, Blend(112), bottom_scr);
 	}
 
-	renderer::fillRect(panelX1, footerY1, panelX2, footerY2, Blend(20), bottom_scr);
-	renderer::rect(panelX1, footerY1, panelX2, footerY2, bottom_scr);
-	renderer::printStr(eUtf8, bottom_scr, panelX1 + 10, footerY1 + 18, "Top screen keeps the EPUB preview visible while loading.", 0, 0, 10);
+	if(footerY2 > footerY1) {
+		renderer::fillRect(panelX1, footerY1, panelX2, footerY2, Blend(20), bottom_scr);
+		renderer::rect(panelX1, footerY1, panelX2, footerY2, bottom_scr);
+		renderer::printStr(eUtf8, bottom_scr, panelX1 + 10, footerY1 + 18, "Top screen keeps the EPUB preview visible while loading.", 0, 0, 10);
+	}
 	renderer::present();
 }
 

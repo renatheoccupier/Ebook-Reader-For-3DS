@@ -83,9 +83,9 @@ bool breakablePreviewChar(char c)
 
 void previewFrameRect(int width, int bottomLimit, int& x1, int& y1, int& x2, int& y2)
 {
-	x1 = 12;
-	x2 = width - 12;
-	y1 = topPreviewPortrait(width) ? 40 : 36;
+	x1 = 10;
+	x2 = width - 10;
+	y1 = topPreviewPortrait(width) ? 34 : 32;
 	y2 = bottomLimit;
 }
 
@@ -881,6 +881,7 @@ void file_browser :: resetPreview()
 	previewPending = false;
 	previewDelayFrames = 0;
 	previewAnimTick = 0;
+	previewTitleMarquee = false;
 	promptActive = false;
 }
 
@@ -893,9 +894,9 @@ void file_browser :: showPreview(const string& file_name)
 	if(kPreviewCoversEnabled) {
 		const int width = renderer::screenTextWidth(top_scr) - 1;
 		int frameX1, frameY1, frameX2, frameY2;
-		previewFrameRect(width, renderer::screenTextHeight(top_scr) - 12, frameX1, frameY1, frameX2, frameY2);
-		const int innerWidth = frameX2 - frameX1 - 4;
-		const int innerHeight = frameY2 - frameY1 - 4;
+		previewFrameRect(width, renderer::screenTextHeight(top_scr) - 8, frameX1, frameY1, frameX2, frameY2);
+		const int innerWidth = frameX2 - frameX1 - 2;
+		const int innerHeight = frameY2 - frameY1 - 2;
 		if(innerWidth > 24 && innerHeight > 24 &&
 			!tryLoadPreviewCache(file_name, innerWidth, innerHeight, previewPixels, previewWidth, previewHeight, previewHasImage)) {
 			previewHasImage = loadPreviewImage(file_name, innerWidth, innerHeight, previewPixels, previewWidth, previewHeight);
@@ -936,6 +937,7 @@ void file_browser :: syncPreviewToCursor(bool force)
 		previewHasImage = false;
 		previewPending = false;
 		previewDelayFrames = 0;
+		previewTitleMarquee = false;
 		promptActive = false;
 		return;
 	}
@@ -954,6 +956,7 @@ void file_browser :: syncPreviewToCursor(bool force)
 	previewPending = true;
 	previewDelayFrames = kPreviewWarmupFrames;
 	previewAnimTick = 0;
+	previewTitleMarquee = false;
 	promptActive = false;
 }
 
@@ -976,23 +979,24 @@ string file_browser :: activateCursor()
 void file_browser :: drawPreview()
 {
 	renderer::clearScreens(settings::bgCol, top_scr);
+	previewTitleMarquee = false;
 
 	const int width = renderer::screenTextWidth(top_scr) - 1;
 	const int height = renderer::screenTextHeight(top_scr) - 1;
-	const int leftPad = 12;
-	const int rightPad = width - 12;
+	const int leftPad = 10;
+	const int rightPad = width - 10;
 	const bool portrait = topPreviewPortrait(width);
 	int previewX1, previewY1, previewX2, previewY2;
-	previewFrameRect(width, height - 14, previewX1, previewY1, previewX2, previewY2);
-	const int titleY1 = 8;
-	const int titleY2 = portrait ? 30 : 28;
+	previewFrameRect(width, height - 8, previewX1, previewY1, previewX2, previewY2);
+	const int titleY1 = 6;
+	const int titleY2 = portrait ? 26 : 24;
 	renderer::fillRect(leftPad, titleY1, rightPad, titleY2, Blend(22), top_scr);
 	renderer::rect(leftPad, titleY1, rightPad, titleY2, top_scr);
 	renderer::fillRect(previewX1, previewY1, previewX2, previewY2, Blend(16), top_scr);
 	renderer::rect(previewX1, previewY1, previewX2, previewY2, top_scr);
 
 	if(flist.empty()) {
-		drawWrappedText(top_scr, leftPad + 8, titleY1 + (portrait ? 14 : 12), rightPad - leftPad - 16,
+		drawWrappedText(top_scr, leftPad + 8, titleY1 + (portrait ? 12 : 10), rightPad - leftPad - 16,
 			"No EPUB files in this folder", topPreviewPortrait(width) ? 10 : 11, topPreviewPortrait(width) ? 1 : 2);
 		drawPreviewIcon(previewX1 + 6, previewY1 + 6, previewX2 - 6, previewY2 - 34);
 		drawWrappedText(top_scr, previewX1 + 14, previewY2 - 34, previewX2 - previewX1 - 28, "Copy books into sdmc:/books/ or press Left to go back.", 10, 2);
@@ -1000,7 +1004,7 @@ void file_browser :: drawPreview()
 	}
 
 	const entry& current = flist[cursor];
-	drawWrappedText(top_scr, leftPad + 8, titleY1 + (portrait ? 14 : 12), rightPad - leftPad - 16, previewLabel(current), portrait ? 10 : 11, portrait ? 1 : 2);
+	previewTitleMarquee = renderer::drawMarqueeText(top_scr, leftPad, titleY1, rightPad, titleY2, previewLabel(current), portrait ? 10 : 11, previewAnimTick, 8);
 
 	if(current.first == folder) {
 		drawFolderIcon(previewX1 + 8, previewY1 + 8, previewX2 - 8, previewY2 - 34);
@@ -1013,10 +1017,10 @@ void file_browser :: drawPreview()
 				"Loading preview" + loadingDots(previewAnimTick), 10, 1);
 		}
 		else if(previewHasImage && !previewPixels.empty()) {
-			const int innerX1 = previewX1 + 2;
-			const int innerY1 = previewY1 + 2;
-			const int innerX2 = previewX2 - 2;
-			const int innerY2 = previewY2 - 2;
+			const int innerX1 = previewX1 + 1;
+			const int innerY1 = previewY1 + 1;
+			const int innerX2 = previewX2 - 1;
+			const int innerY2 = previewY2 - 1;
 			const int boxW = innerX2 - innerX1 + 1;
 			const int boxH = innerY2 - innerY1 + 1;
 			const int drawX = innerX1 + (boxW - previewWidth) / 2;
@@ -1153,9 +1157,11 @@ string file_browser :: run()
 
 	while(pumpPowerManagement()){
 		swiWaitForVBlank();
-		if(previewPending) {
+		if(previewPending || previewTitleMarquee) {
 			++previewAnimTick;
-			if(0 == (previewAnimTick % 12u)) drawPreview();
+			if((previewPending && 0 == (previewAnimTick % 12u)) ||
+				(previewTitleMarquee && 0 == (previewAnimTick % 6u)))
+				drawPreview();
 		}
 		const bool previewUpdated = tickPreview();
 		if(previewUpdated) drawPreview();

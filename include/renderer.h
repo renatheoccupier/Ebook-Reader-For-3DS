@@ -40,6 +40,7 @@ namespace renderer
 	void drawImageSlice(scr_id, int x, int y, const vector<u16>& pixels, u16 width, u16 height, u16 srcY, u16 sliceHeight);
 	int strWidth(Encoding, const string&, u32 start=0, u32 end=0, u8 = settings::font_size, fontStyle = fnormal, int* breakat = NULL, int spaceleft=99);
 	int printStr(Encoding, scr_id, u16 x, u16 y, const string&, u32 start=0, u32 end=0, u8 = settings::font_size, fontStyle = fnormal);
+	bool drawMarqueeText(scr_id, int x1, int y1, int x2, int y2, const string&, u32 fontSize, u32 marqueeStep, int pad = 4);
 	void printClock(scr_id, bool forced = false);
 	void changeFont();
 	extern u16 *bmp[2];

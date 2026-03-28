@@ -10,7 +10,7 @@ bool copyCachedPreview(const string& file_name, vector<u16>& pixels, u16& width,
 struct file_browser
 {
 	file_browser() : previewWidth(0), previewHeight(0), previewHasImage(false), previewPending(false), previewDelayFrames(0),
-		promptActive(false), scrollbarFrames(0), previewAnimTick(0), pos(0), cursor(0), num(0) {}
+		promptActive(false), scrollbarFrames(0), previewAnimTick(0), previewTitleMarquee(false), pos(0), cursor(0), num(0) {}
 	string run();
 private:
 	void cd(), upd(bool refreshScrollbar = true);
@@ -35,6 +35,7 @@ private:
 	bool promptActive;
 	int scrollbarFrames;
 	u32 previewAnimTick;
+	bool previewTitleMarquee;
 	button promptOpen, promptKeep;
 	scrollbar sbar;
 	int pos;
