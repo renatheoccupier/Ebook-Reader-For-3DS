@@ -1,16 +1,10 @@
 # EBookReaderFor3DS
 
-Standalone Nintendo 3DS EPUB reader project based on the design and core reader logic from `EbookReaderForDS`.
+Find better app
 
-This project does not modify the DS app. It keeps the existing EPUB parser, bookmarks, table of contents, image preview, themes, and settings flow, but swaps the hardware layer for a native 3DS target.
+## Info
 
-## Current Layout
-
-- `source/`: 3DS app source
-- `include/`: shared headers and 3DS platform declarations
-- `lib/`: local `freetype` and `zlib` archives reused from the DS project
-- `sdmc_template/data/`: fonts, translations, encodings, and runtime folders to copy to the SD card
-- `tools/`: EPUB helper scripts copied from the DS project
+- Still on dev and it really bad
 
 ## Runtime Paths
 
@@ -24,7 +18,9 @@ The app expects these folders on the SD card:
 
 You can also keep books in `sdmc:/books/`. The browser checks that path first.
 
-To prepare runtime data, copy the contents of [`sdmc_template/data/`](/home/rena/Work/NDS/EBookReaderFor3DS/sdmc_template/data) into `sdmc:/3ds/EBookReaderFor3DS/data/`.
+> [!NOTE]
+> Make sure download and place data folders inside /3ds/EBookReaderFor3DS
+> You can place books folders anywhere you prefer or if you already have folder for epub file then inside app you can browser to it
 
 ## Build
 
@@ -53,16 +49,13 @@ Use the bundled optimizer before copying large books to the SD card:
 python3 tools/optimize_epub.py book.epub book-3ds.epub
 ```
 
-The default preset is now tuned for 3DS screens (`400x240`, lighter JPEG/PNG budgets) and it reports whether the EPUB spine is still too large for the 3DS parser. If the tool warns that total spine text or a single chapter is over budget, split the book first:
-
 ```sh
 python3 tools/split_epub.py book.epub out_dir/
 ```
 
-## Notes
+> [!WARNING]
+> It may load the file up to 12mb (hmm i guess) but it make loading time long as fk so well i highly recomment you use file around 5mb it will take 20-30s well maybe more or less (i use emulator only) still long as fk but acceptable and it loading screen i hope you will few it less longer
 
-- The renderer uses a 400x240 top-screen buffer and a 320x240 bottom-screen buffer, so the top screen can show a wider reading page, preview cards, and status information.
-- Home, browser, bookmark, and settings screens now favor simpler 3DS-native panels instead of DS-style pop-up dashboards on the top screen.
-- Reader and cover-preview caches are a bit larger than the DS build to take advantage of 3DS memory headroom.
-- Search uses the 3DS software keyboard instead of the DS on-screen keyboard.
-- The DS project remains untouched in [`EbookReaderForDS/`](/home/rena/Work/NDS/EbookReaderForDS).
+## Control
+
+- It not black text in black screen a white text in black screen so don't worry if you not see anything, i'm just too lazy (oh and don't follow the guide in the start screen oh and if you wonder why the start screen missing in the top oh why it feel so blank then yeah it can load image if i not mistake that image should name `rena.png` and have to place in `/3ds/EBookReaderFor3DS/data/` why not in `start_menu_image`folder or something like that? well lazy as fk)

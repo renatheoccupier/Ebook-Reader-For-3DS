@@ -36,6 +36,26 @@ namespace
 static const u32 marqueeStartHoldSteps = 0;
 static const u32 marqueeEndHoldSteps = 60;
 static const u32 marqueeFramesPerPixel = 1;
+static const int kMinStaticMarqueePad = 2;
+static const size_t kMarqueeCacheSize = 6;
+
+struct MarqueeMetrics {
+	string text;
+	string fontName;
+	u32 fontSize;
+	u32 renderFlags;
+	vector<int> prefixWidths;
+	vector<u32> byteOffsets;
+	int totalWidth;
+	bool valid;
+
+	MarqueeMetrics() : fontSize(), renderFlags(), totalWidth(), valid() {}
+};
+
+MarqueeMetrics gMarqueeCache[kMarqueeCacheSize];
+size_t gMarqueeCacheNext = 0;
+u16 gBrightnessLut[3][1 << 15];
+bool gBrightnessLutReady[3] = {false, false, false};
 
 int textLimitX(scr_id scr)
 {
@@ -47,11 +67,16 @@ inline u8 expand5(u8 value)
 	return (value << 3) | (value >> 2);
 }
 
-u8 outputBrightnessScale()
+u8 outputBrightnessLevel()
 {
-	static const u8 kScales[] = {10, 18, 25, 31};
 	int level = settings::brightness;
 	clamp(level, 0, 3);
+	return level;
+}
+
+u8 outputBrightnessScale(int level)
+{
+	static const u8 kScales[] = {10, 18, 25, 31};
 	return kScales[level];
 }
 
@@ -62,6 +87,18 @@ u16 dimPixel(u16 color, u8 scale)
 	const u8 g = (((color >> 5) & 0x1F) * scale + 15) / 31;
 	const u8 b = ((color & 0x1F) * scale + 15) / 31;
 	return BIT(15) | (r << 10) | (g << 5) | b;
+}
+
+const u16* brightnessLut(int level)
+{
+	if(level < 0 || level >= 3) return NULL;
+	if(gBrightnessLutReady[level]) return gBrightnessLut[level];
+
+	const u8 scale = outputBrightnessScale(level);
+	for(int color = 0; color < (1 << 15); ++color)
+		gBrightnessLut[level][color] = dimPixel(BIT(15) | color, scale);
+	gBrightnessLutReady[level] = true;
+	return gBrightnessLut[level];
 }
 
 bool entryIsDirectory(const string& basePath, const dirent* ent)
@@ -154,7 +191,9 @@ void blitScreen(scr_id scr, gfxScreen_t screen)
 	const int height = 240;
 	const int width = (screen == GFX_TOP) ? 400 : 320;
 	const int copyWidth = MIN(width, screenPixelWidth(scr));
-	const u8 brightnessScale = outputBrightnessScale();
+	const int brightnessLevel = outputBrightnessLevel();
+	const bool fullBrightness = (brightnessLevel >= 3);
+	const u16* lut = fullBrightness ? NULL : brightnessLut(brightnessLevel);
 	u8* fb = gfxGetFramebuffer(screen, GFX_LEFT, NULL, NULL);
 	if(fb == NULL) return;
 
@@ -162,7 +201,7 @@ void blitScreen(scr_id scr, gfxScreen_t screen)
 		u8* dst = fb + srcX * height * 3;
 		const u16* src = &bmp[scr][(kBufferHeight - 1) * kBufferWidth + srcX];
 		for(int y = kBufferHeight - 1; y >= 0; --y) {
-			const u16 pixel = dimPixel(*src, brightnessScale);
+			const u16 pixel = fullBrightness ? *src : lut[*src & 0x7FFF];
 			dst[0] = expand5((pixel >> 10) & 0x1F);
 			dst[1] = expand5((pixel >> 5) & 0x1F);
 			dst[2] = expand5(pixel & 0x1F);
@@ -587,20 +626,37 @@ int strWidth(Encoding enc, const string& str, u32 start, u32 end, u8 fontSize, f
 	return width;
 }
 
-u32 marqueeByteOffset(const string& str, u32 fontSize, int scrollPx, int& pixelOffset)
+MarqueeMetrics& marqueeMetrics(const string& str, u32 fontSize)
 {
-	pixelOffset = 0;
-	if(scrollPx <= 0 || str.empty()) return 0;
+	correctTech();
+	const u32 renderFlags = ftcImageType->flags;
+	const string fontName = settings::font;
+
+	for(size_t i = 0; i < kMarqueeCacheSize; ++i)
+		if(gMarqueeCache[i].valid && gMarqueeCache[i].fontSize == fontSize && gMarqueeCache[i].renderFlags == renderFlags && gMarqueeCache[i].fontName == fontName && gMarqueeCache[i].text == str)
+			return gMarqueeCache[i];
+
+	MarqueeMetrics& entry = gMarqueeCache[gMarqueeCacheNext];
+	gMarqueeCacheNext = (gMarqueeCacheNext + 1) % kMarqueeCacheSize;
+	entry.valid = true;
+	entry.text = str;
+	entry.fontName = fontName;
+	entry.fontSize = fontSize;
+	entry.renderFlags = renderFlags;
+	entry.prefixWidths.clear();
+	entry.byteOffsets.clear();
+	entry.prefixWidths.push_back(0);
+	entry.byteOffsets.push_back(0);
+	entry.totalWidth = 0;
+
+	if(str.empty()) return entry;
 
 	setFontSize(fontSize);
-	correctTech();
 	FT_Face* fc = selectStyle(fnormal);
 	const bool use_kern = false;
 	FT_UInt glyph_index, old_gi = 0;
 	FT_Vector delta;
-	int width = 0;
 	for(const char* str_it = str.c_str(); *str_it != '\0'; ) {
-		const char* prev = str_it;
 		u32 cp = utf8::unchecked::next(str_it);
 		if(cp == L'­') continue;
 		glyph_index = FT_Get_Char_Index(*fc, cp);
@@ -612,17 +668,48 @@ u32 marqueeByteOffset(const string& str, u32 fontSize, int scrollPx, int& pixelO
 		FT_Error err = FTC_SBitCache_Lookup(ftcSBitCache, ftcImageType, glyph_index, &ftcSBit, NULL);
 		if(err) {
 			old_gi = 0;
+			entry.prefixWidths.push_back(entry.totalWidth);
+			entry.byteOffsets.push_back(str_it - str.c_str());
 			continue;
 		}
 		advance += ftcSBit->xadvance;
-		if(width + advance > scrollPx) {
-			pixelOffset = scrollPx - width;
-			return prev - str.c_str();
-		}
-		width += advance;
+		entry.totalWidth += advance;
+		entry.prefixWidths.push_back(entry.totalWidth);
+		entry.byteOffsets.push_back(str_it - str.c_str());
 		old_gi = glyph_index;
 	}
-	return str.size();
+
+	return entry;
+}
+
+u32 marqueeByteOffset(const MarqueeMetrics& metrics, int scrollPx, int& pixelOffset)
+{
+	pixelOffset = 0;
+	if(scrollPx <= 0 || metrics.byteOffsets.empty()) return 0;
+
+	vector<int>::const_iterator it = upper_bound(metrics.prefixWidths.begin(), metrics.prefixWidths.end(), scrollPx);
+	if(it == metrics.prefixWidths.begin()) {
+		pixelOffset = scrollPx;
+		return 0;
+	}
+
+	const size_t index = size_t(it - metrics.prefixWidths.begin() - 1);
+	pixelOffset = scrollPx - metrics.prefixWidths[index];
+	return (index < metrics.byteOffsets.size()) ? metrics.byteOffsets[index] : metrics.text.size();
+}
+
+int marqueeEndScrollPx(const MarqueeMetrics& metrics, int innerWidth)
+{
+	if(metrics.totalWidth <= innerWidth) return 0;
+
+	int endScrollPx = MAX(0, metrics.totalWidth - innerWidth);
+	for(size_t i = 0; i < metrics.prefixWidths.size(); ++i) {
+		if(metrics.totalWidth - metrics.prefixWidths[i] <= innerWidth) {
+			endScrollPx = metrics.prefixWidths[i];
+			break;
+		}
+	}
+	return endScrollPx;
 }
 
 bool drawMarqueeText(scr_id scr, int x1, int y1, int x2, int y2, const string& text, u32 fontSize, u32 marqueeStep, int pad)
@@ -630,20 +717,33 @@ bool drawMarqueeText(scr_id scr, int x1, int y1, int x2, int y2, const string& t
 	if(text.empty()) return false;
 	if(x2 < x1 || y2 < y1) return false;
 
-	const int innerX1 = x1 + MAX(0, pad);
-	const int innerX2 = x2 - MAX(0, pad);
+	const MarqueeMetrics& metrics = marqueeMetrics(text, fontSize);
+	int effectivePad = MAX(0, pad);
+	int innerX1 = x1 + effectivePad;
+	int innerX2 = x2 - effectivePad;
 	if(innerX2 < innerX1) return false;
 
-	const int innerWidth = innerX2 - innerX1 + 1;
+	int innerWidth = innerX2 - innerX1 + 1;
+	const int relaxedPad = MIN(effectivePad, kMinStaticMarqueePad);
+	if(relaxedPad < effectivePad) {
+		const int relaxedInnerWidth = x2 - x1 + 1 - 2 * relaxedPad;
+		if(metrics.totalWidth <= relaxedInnerWidth) {
+			effectivePad = relaxedPad;
+			innerX1 = x1 + effectivePad;
+			innerX2 = x2 - effectivePad;
+			innerWidth = innerX2 - innerX1 + 1;
+		}
+	}
 	const int baselineY = y1 + fontSize - 1 + MAX(0, (y2 - y1 + 1 - int(fontSize)) / 2);
-	const int width = strWidth(eUtf8, text, 0, 0, fontSize);
+	const int width = metrics.totalWidth;
 	if(width <= innerWidth) {
 		const int drawX = innerX1 + MAX(0, (innerWidth - width) / 2);
 		printStr(eUtf8, scr, drawX, baselineY, text, 0, 0, fontSize);
 		return false;
 	}
 
-	const int travelPx = width - innerWidth;
+	const int endScrollPx = marqueeEndScrollPx(metrics, innerWidth);
+	const int travelPx = endScrollPx;
 	const u32 cycle = marqueeStartHoldSteps + travelPx * marqueeFramesPerPixel + marqueeEndHoldSteps;
 	const u32 phase = (0 == cycle) ? 0 : (marqueeStep % cycle);
 	int scrollPx = 0;
@@ -654,7 +754,7 @@ bool drawMarqueeText(scr_id scr, int x1, int y1, int x2, int y2, const string& t
 	else
 		scrollPx = travelPx;
 	int pixelOffset = 0;
-	const u32 start = marqueeByteOffset(text, fontSize, scrollPx, pixelOffset);
+	const u32 start = marqueeByteOffset(metrics, scrollPx, pixelOffset);
 	printStrClipped(eUtf8, scr, innerX1 - pixelOffset, baselineY, text, start, 0, fontSize, fnormal, innerX1, innerX2);
 	return true;
 }

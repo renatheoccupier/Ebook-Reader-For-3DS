@@ -9,7 +9,7 @@
 namespace
 {
 
-static const u32 marqueeHoldSteps = 18;
+static const u32 marqueeEndHoldSteps = 60;
 static const u32 marqueeFramesPerChar = 5;
 
 vector<u32> utf8Offsets(const string& str)
@@ -70,11 +70,11 @@ u32 marqueeStart(const string& str, int width, u32 fontSize, u32 marqueeStep)
 	if(0 == endStart) return 0;
 
 	const u32 travelSteps = endStart * marqueeFramesPerChar;
-	const u32 cycle = marqueeHoldSteps + travelSteps;
+	const u32 cycle = travelSteps + marqueeEndHoldSteps;
 	if(0 == cycle) return 0;
 	const u32 phase = marqueeStep % cycle;
-	if(phase < marqueeHoldSteps) return 0;
-	return MIN(endStart, (phase - marqueeHoldSteps) / marqueeFramesPerChar);
+	if(phase >= travelSteps) return endStart;
+	return MIN(endStart, phase / marqueeFramesPerChar);
 }
 
 } // namespace
