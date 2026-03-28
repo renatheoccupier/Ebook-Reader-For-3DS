@@ -32,7 +32,7 @@ const int kPreviewTitleLines = 3;
 const int kPreviewTitleGap = 2;
 const int kPreviewImageGap = 8;
 const int kPromptFont = 12;
-const int kPreviewWarmupFrames = 45;
+const int kPreviewWarmupFrames = 10;
 const u32 kPreviewMaxEntryBytes = 768u * 1024u;
 const u32 kPreviewCacheEntries = 12u;
 const u32 kPreviewPathCacheEntries = 16u;
@@ -357,15 +357,13 @@ bool decodePreviewJpeg(const char* data, u32 size, u16 maxWidth, u16 maxHeight, 
 
 	u32 dstWidth = srcWidth;
 	u32 dstHeight = srcHeight;
-	if(dstWidth > maxWidth || dstHeight > maxHeight) {
-		if(dstWidth * maxHeight > dstHeight * maxWidth) {
-			dstHeight = (dstHeight * maxWidth) / dstWidth;
-			dstWidth = maxWidth;
-		}
-		else {
-			dstWidth = (dstWidth * maxHeight) / dstHeight;
-			dstHeight = maxHeight;
-		}
+	if(srcWidth * maxHeight > srcHeight * maxWidth) {
+		dstWidth = maxWidth;
+		dstHeight = (srcHeight * maxWidth) / srcWidth;
+	}
+	else {
+		dstHeight = maxHeight;
+		dstWidth = (srcWidth * maxHeight) / srcHeight;
 	}
 	if(0 == dstWidth) dstWidth = 1;
 	if(0 == dstHeight) dstHeight = 1;
@@ -815,6 +813,17 @@ bool copyCachedPreview(const string& file_name, vector<u16>& pixels, u16& width,
 	return copyCachedPreviewLocal(file_name, pixels, width, height);
 }
 
+bool loadPreviewForBox(const string& file_name, u16 maxWidth, u16 maxHeight, vector<u16>& pixels, u16& width, u16& height)
+{
+	bool hasImage = false;
+	if(tryLoadPreviewCache(file_name, maxWidth, maxHeight, pixels, width, height, hasImage))
+		return hasImage;
+
+	hasImage = loadPreviewImage(file_name, maxWidth, maxHeight, pixels, width, height);
+	storePreviewCache(file_name, pixels, width, height, maxWidth, maxHeight, hasImage);
+	return hasImage;
+}
+
 bool comp(entry e1, entry e2)
 {
 	if(e1.first == e2.first) return 0 > strcmp(e1.second.c_str(), e2.second.c_str());
@@ -897,11 +906,8 @@ void file_browser :: showPreview(const string& file_name)
 		previewFrameRect(width, renderer::screenTextHeight(top_scr) - 8, frameX1, frameY1, frameX2, frameY2);
 		const int innerWidth = frameX2 - frameX1 - 2;
 		const int innerHeight = frameY2 - frameY1 - 2;
-		if(innerWidth > 24 && innerHeight > 24 &&
-			!tryLoadPreviewCache(file_name, innerWidth, innerHeight, previewPixels, previewWidth, previewHeight, previewHasImage)) {
-			previewHasImage = loadPreviewImage(file_name, innerWidth, innerHeight, previewPixels, previewWidth, previewHeight);
-			storePreviewCache(file_name, previewPixels, previewWidth, previewHeight, innerWidth, innerHeight, previewHasImage);
-		}
+		if(innerWidth > 24 && innerHeight > 24)
+			previewHasImage = loadPreviewForBox(file_name, innerWidth, innerHeight, previewPixels, previewWidth, previewHeight);
 	}
 	previewPending = false;
 	previewDelayFrames = 0;
@@ -949,6 +955,30 @@ void file_browser :: syncPreviewToCursor(bool force)
 	}
 
 	if(previewFile == file_name) return;
+
+	const int width = renderer::screenTextWidth(top_scr) - 1;
+	int frameX1, frameY1, frameX2, frameY2;
+	previewFrameRect(width, renderer::screenTextHeight(top_scr) - 8, frameX1, frameY1, frameX2, frameY2);
+	const u16 innerWidth = MAX(1, frameX2 - frameX1 - 2);
+	const u16 innerHeight = MAX(1, frameY2 - frameY1 - 2);
+	vector<u16> cachedPixels;
+	u16 cachedWidth = 0;
+	u16 cachedHeight = 0;
+	bool cachedHasImage = false;
+	if(tryLoadPreviewCache(file_name, innerWidth, innerHeight, cachedPixels, cachedWidth, cachedHeight, cachedHasImage)) {
+		previewFile = file_name;
+		previewPixels.swap(cachedPixels);
+		previewWidth = cachedWidth;
+		previewHeight = cachedHeight;
+		previewHasImage = cachedHasImage;
+		previewPending = false;
+		previewDelayFrames = 0;
+		previewAnimTick = 0;
+		previewTitleMarquee = false;
+		promptActive = false;
+		return;
+	}
+
 	previewFile = file_name;
 	vector<u16>().swap(previewPixels);
 	previewWidth = previewHeight = 0;

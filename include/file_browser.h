@@ -6,6 +6,7 @@ typedef std::pair<entity, string> entry;
 typedef std::pair<entity, button> fbutton;
 
 bool copyCachedPreview(const string& file_name, vector<u16>& pixels, u16& width, u16& height);
+bool loadPreviewForBox(const string& file_name, u16 maxWidth, u16 maxHeight, vector<u16>& pixels, u16& width, u16& height);
 
 struct file_browser
 {

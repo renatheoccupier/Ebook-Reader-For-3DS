@@ -46,31 +46,29 @@ bool tagListed(const char* tag, const char* list)
 	return false;
 }
 
-string compactBookTitle(const string& name, u32 maxChars)
-{
-	if(name.size() <= maxChars) return name;
-	return name.substr(0, maxChars - 3) + "...";
-}
-
 void drawLoadingCover(const string& bookFile, int x1, int y1, int x2, int y2)
 {
 	static string cachedFile;
+	static u16 cachedMaxWidth = 0;
+	static u16 cachedMaxHeight = 0;
 	static vector<u16> cachedPixels;
 	static u16 cachedWidth = 0;
 	static u16 cachedHeight = 0;
 	static bool cacheReady = false;
 	static bool hasCachedImage = false;
 
-	if(cachedFile != bookFile || !cacheReady) {
+	const u16 innerWidth = MAX(1, x2 - x1 - 12);
+	const u16 innerHeight = MAX(1, y2 - y1 - 12);
+	if(cachedFile != bookFile || cachedMaxWidth != innerWidth || cachedMaxHeight != innerHeight || !cacheReady) {
 		cachedFile = bookFile;
+		cachedMaxWidth = innerWidth;
+		cachedMaxHeight = innerHeight;
 		cachedPixels.clear();
 		cachedWidth = cachedHeight = 0;
-		hasCachedImage = copyCachedPreview(bookFile, cachedPixels, cachedWidth, cachedHeight);
+		hasCachedImage = loadPreviewForBox(bookFile, innerWidth, innerHeight, cachedPixels, cachedWidth, cachedHeight);
 		cacheReady = true;
 	}
 
-	renderer::fillRect(x1, y1, x2, y2, Blend(10), top_scr);
-	renderer::rect(x1, y1, x2, y2, top_scr);
 	if(hasCachedImage && !cachedPixels.empty() && cachedWidth > 0 && cachedHeight > 0) {
 		const int innerX1 = x1 + 6;
 		const int innerY1 = y1 + 6;
@@ -84,6 +82,7 @@ void drawLoadingCover(const string& bookFile, int x1, int y1, int x2, int y2)
 		return;
 	}
 
+	renderer::fillRect(x1 + 1, y1 + 1, x2 - 1, y2 - 1, Blend(16), top_scr);
 	renderer::printStr(eUtf8, top_scr, x1 + 18, y1 + 52, "EPUB", 0, 0, 16);
 	renderer::printStr(eUtf8, top_scr, x1 + 14, y1 + 74, "Preview", 0, 0, 10);
 }
@@ -94,21 +93,24 @@ void drawOpenProgress(const string& bookFile, u32 current, u32 total)
 	renderer::clearScreens(settings::bgCol);
 	const int topW = renderer::screenTextWidth(top_scr) - 1;
 	const int topH = renderer::screenTextHeight(top_scr) - 1;
-	const int left = 16;
-	const int right = topW - 16;
-	const int titleY1 = 14;
-	const int titleY2 = 54;
-	const int coverY1 = 66;
-	const int coverY2 = topH - 14;
-	const int coverX1 = left;
-	const int coverX2 = right;
+	const bool portrait = topW < 300;
+	const int titleX1 = 10;
+	const int titleX2 = topW - 10;
+	const int titleY1 = 6;
+	const int titleY2 = portrait ? 26 : 24;
+	const int coverX1 = 10;
+	const int coverX2 = topW - 10;
+	const int coverY1 = portrait ? 34 : 32;
+	const int coverY2 = topH - 8;
 	string dots;
 	for(u32 i = 0; i < ((current / kOpenProgressUpdateStep) % 4u); ++i) dots += '.';
 
-	renderer::fillRect(left, titleY1, right, titleY2, Blend(22), top_scr);
-	renderer::rect(left, titleY1, right, titleY2, top_scr);
-	renderer::printStr(eUtf8, top_scr, left + 10, titleY1 + 20, compactBookTitle(noExt(noPath(bookFile)), 34), 0, 0, 14);
-	renderer::printStr(eUtf8, top_scr, left + 10, titleY1 + 34, "Preview", 0, 0, 9);
+	renderer::fillRect(titleX1, titleY1, titleX2, titleY2, Blend(22), top_scr);
+	renderer::rect(titleX1, titleY1, titleX2, titleY2, top_scr);
+	renderer::drawMarqueeText(top_scr, titleX1, titleY1, titleX2, titleY2,
+		noExt(noPath(bookFile)), portrait ? 10 : 11, current / kOpenProgressUpdateStep, 8);
+	renderer::fillRect(coverX1, coverY1, coverX2, coverY2, Blend(16), top_scr);
+	renderer::rect(coverX1, coverY1, coverX2, coverY2, top_scr);
 	drawLoadingCover(bookFile, coverX1, coverY1, coverX2, coverY2);
 
 	renderer::clearScreens(settings::bgCol, bottom_scr);
@@ -118,8 +120,6 @@ void drawOpenProgress(const string& bookFile, u32 current, u32 total)
 	const int titleCardY2 = 88;
 	const int progressCardY1 = 100;
 	const int progressCardY2 = 176;
-	const int footerY1 = 190;
-	const int footerY2 = screens::layoutY() - 12;
 
 	renderer::fillRect(panelX1, titleCardY1, panelX2, titleCardY2, Blend(18), bottom_scr);
 	renderer::rect(panelX1, titleCardY1, panelX2, titleCardY2, bottom_scr);
@@ -148,11 +148,6 @@ void drawOpenProgress(const string& bookFile, u32 current, u32 total)
 			renderer::fillRect(barX1 + 1, barY1 + 1, fillX2, barY2 - 1, Blend(112), bottom_scr);
 	}
 
-	if(footerY2 > footerY1) {
-		renderer::fillRect(panelX1, footerY1, panelX2, footerY2, Blend(20), bottom_scr);
-		renderer::rect(panelX1, footerY1, panelX2, footerY2, bottom_scr);
-		renderer::printStr(eUtf8, bottom_scr, panelX1 + 10, footerY1 + 18, "Top screen keeps the EPUB preview visible while loading.", 0, 0, 10);
-	}
 	renderer::present();
 }
 

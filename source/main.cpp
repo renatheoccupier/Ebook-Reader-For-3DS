@@ -283,8 +283,8 @@ void drawMenuButtonStrip()
 	if(footerY2 > footerY1) {
 		renderer::fillRect(cardX1, footerY1, cardX2, footerY2, Blend(14), bottom_scr);
 		renderer::rect(cardX1, footerY1, cardX2, footerY2, bottom_scr);
-		renderer::printStr(eUtf8, bottom_scr, cardX1 + 10, footerY1 + 16, "A/Right opens. B/Left backs out.", 0, 0, portrait ? 8 : 9);
-		renderer::printStr(eUtf8, bottom_scr, cardX1 + 10, footerY1 + 30, "Tap a button or press Start to exit.", 0, 0, portrait ? 8 : 9);
+		renderer::printStr(eUtf8, bottom_scr, cardX1 + 10, footerY1 + 16, "Touch or A/Right: open", 0, 0, portrait ? 8 : 9);
+		renderer::printStr(eUtf8, bottom_scr, cardX1 + 10, footerY1 + 30, "Up/Down: select   Start: exit", 0, 0, portrait ? 8 : 9);
 	}
 }
 
