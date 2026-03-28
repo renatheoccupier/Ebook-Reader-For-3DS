@@ -154,6 +154,7 @@ private:
 	bool moreOld() {return !bookmarks.empty() && *bookmarks.begin()  < current_page;}
 	
 	bool menu();
+	bool brightnessMenu();
 	void drawMenu(bool recache = true);
 	grid menuGrid;
 	bool otherGrid;

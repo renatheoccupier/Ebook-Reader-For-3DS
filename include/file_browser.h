@@ -5,6 +5,8 @@ enum entity {file, folder};
 typedef std::pair<entity, string> entry;
 typedef std::pair<entity, button> fbutton;
 
+bool copyCachedPreview(const string& file_name, vector<u16>& pixels, u16& width, u16& height);
+
 struct file_browser
 {
 	file_browser() : previewWidth(0), previewHeight(0), previewHasImage(false), previewPending(false), previewDelayFrames(0),

@@ -187,13 +187,26 @@ void drawMenuButtonStrip()
 	const int width = screens::layoutX();
 	const int height = screens::layoutY();
 	const bool canResume = book_ok(settings::recent_book);
-	const int buttonHeight = portrait ? 56 : 52;
+	const int cardX1 = 12;
+	const int cardX2 = width - 12;
+	const int cardY1 = 14;
+	const int cardY2 = height - 14;
+	const int buttonHeight = portrait ? 52 : 48;
 	const int gap = 12;
+	const string lead = canResume
+		? string("Resume your latest EPUB or open the library.")
+		: string("Open Files to browse sdmc:/books/ and app books.");
+
+	renderer::fillRect(cardX1, cardY1, cardX2, cardY2, Blend(12), bottom_scr);
+	renderer::rect(cardX1, cardY1, cardX2, cardY2, bottom_scr);
+	renderer::fillRect(cardX1, cardY1, cardX2, cardY1 + 34, Blend(24), bottom_scr);
+	renderer::printStr(eUtf8, bottom_scr, cardX1 + 10, cardY1 + 18, "Start Menu", 0, 0, 14);
+	renderer::printStr(eUtf8, bottom_scr, cardX1 + 10, cardY1 + 31, lead, 0, 0, portrait ? 9 : 10);
 
 	if(canResume && !portrait) {
-		const int buttonWidth = MIN(150, (width - 34) / 2);
+		const int buttonWidth = MIN(144, (width - 52) / 2);
 		const int left = (width - (buttonWidth * 2 + gap)) / 2;
-		const int top = MAX(24, height - buttonHeight - 36);
+		const int top = cardY1 + 58;
 		button resume("Resume", left, top, left + buttonWidth, top + buttonHeight, 16);
 		resume.enableAutoFit(12);
 		gMenuButtons.push_back(resume);
@@ -205,11 +218,11 @@ void drawMenuButtonStrip()
 	}
 	else {
 		const int count = canResume ? 2 : 1;
-		const int sidePad = portrait ? 40 : 20;
+		const int sidePad = portrait ? 34 : 26;
 		const int buttonWidth = portrait ? MAX(120, width - sidePad * 2) : MIN(width - 40, 220);
 		const int left = MAX(sidePad, (width - buttonWidth) / 2);
 		const int totalHeight = count * buttonHeight + (count - 1) * gap;
-		int top = portrait ? MAX(22, (height - totalHeight) / 2 - 12) : MAX(24, height - totalHeight - 28);
+		int top = portrait ? MAX(cardY1 + 52, (height - totalHeight) / 2) : MAX(cardY1 + 56, height - totalHeight - 42);
 
 		if(canResume) {
 			button resume("Resume", left, top, left + buttonWidth, top + buttonHeight, 16);
@@ -224,6 +237,10 @@ void drawMenuButtonStrip()
 		gMenuButtons.push_back(files);
 		gMenuActions.push_back(SAY(files));
 	}
+
+	renderer::fillRect(cardX1 + 8, cardY2 - 42, cardX2 - 8, cardY2 - 8, Blend(20), bottom_scr);
+	renderer::rect(cardX1 + 8, cardY2 - 42, cardX2 - 8, cardY2 - 8, bottom_scr);
+	renderer::printStr(eUtf8, bottom_scr, cardX1 + 16, cardY2 - 22, "Tap or press A / Right. Start exits.", 0, 0, portrait ? 8 : 9);
 
 	for(u32 i = 0; i < gMenuButtons.size(); ++i)
 		gMenuButtons[i].draw();
@@ -345,8 +362,8 @@ int main(int argc, char* argv[])
 
 	settings::load();
 	gReadingLayout = settings::layout;
-	applyBrightness();
 	initPowerManagement();
+	applyBrightness();
 	renderer::initFonts();
 	string trans = transPath + settings::translname;
 	if(file_ok(trans)) loadTrans(trans);

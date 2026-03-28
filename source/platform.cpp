@@ -3,6 +3,7 @@
 #include "renderer.h"
 #include "settings.h"
 
+#include <3ds/services/gsplcd.h>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -16,10 +17,44 @@ u32 gKeysDown = 0;
 u32 gKeysHeld = 0;
 u32 gKeysUp = 0;
 bool gShouldExit = false;
+bool gBacklightReady = false;
+u32 gCurrentBacklightMask = GSPLCD_SCREEN_BOTH;
 
 void ensureDir(const string& path)
 {
 	mkdir(path.c_str(), 0777);
+}
+
+u32 brightnessValue()
+{
+	static const u32 kBrightnessLevels[] = {25u, 45u, 70u, 100u};
+	int level = settings::brightness;
+	clamp(level, 0, 3);
+	return kBrightnessLevels[level];
+}
+
+u32 targetBacklightMask(backlightMode mode)
+{
+	if(mode != blReading) return GSPLCD_SCREEN_BOTH;
+
+	switch(settings::scrConf) {
+		case scTop:
+			return GSPLCD_SCREEN_TOP;
+		case scBottom:
+			return GSPLCD_SCREEN_BOTTOM;
+		case scBoth:
+		default:
+			return GSPLCD_SCREEN_BOTH;
+	}
+}
+
+void setScreenBacklight(u32 screen, bool enabled)
+{
+	if(enabled) {
+		GSPLCD_PowerOnBacklight(screen);
+		return;
+	}
+	GSPLCD_PowerOffBacklight(screen);
 }
 
 } // namespace
@@ -136,6 +171,11 @@ void initPowerManagement()
 	bool isNew3DS = false;
 	if(R_SUCCEEDED(APT_CheckNew3DS(&isNew3DS)) && isNew3DS)
 		osSetSpeedupEnable(true);
+	if(!gBacklightReady && R_SUCCEEDED(gspLcdInit())) {
+		gBacklightReady = true;
+		gCurrentBacklightMask = GSPLCD_SCREEN_BOTH;
+		GSPLCD_PowerOnAllBacklights();
+	}
 }
 
 bool pumpPowerManagement()
@@ -155,11 +195,20 @@ bool appShouldExit()
 
 void setBacklightMode(backlightMode mode)
 {
-	(void)mode;
+	if(!gBacklightReady) return;
+
+	const u32 mask = targetBacklightMask(mode);
+	if(mask == gCurrentBacklightMask) return;
+
+	setScreenBacklight(GSPLCD_SCREEN_TOP, 0 != (mask & GSPLCD_SCREEN_TOP));
+	setScreenBacklight(GSPLCD_SCREEN_BOTTOM, 0 != (mask & GSPLCD_SCREEN_BOTTOM));
+	gCurrentBacklightMask = mask;
 }
 
 void applyBrightness()
 {
+	if(!gBacklightReady) return;
+	GSPLCD_SetBrightness(GSPLCD_SCREEN_BOTH, brightnessValue());
 }
 
 void cycleBacklight()

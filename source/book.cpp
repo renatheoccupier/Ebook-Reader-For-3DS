@@ -240,6 +240,105 @@ string progressLabel(u32 parag_num, u32 total)
 	return buf;
 }
 
+void drawWrappedText(scr_id scr, int x1, int y1, int width, const string& text, u32 fontSize, u32 maxLines)
+{
+	const vector<string> lines = wrapListText(text, width, fontSize, maxLines);
+	for(u32 i = 0; i < lines.size(); ++i) {
+		const int baseline = y1 + fontSize - 1 + i * (fontSize + kListLineGap);
+		renderer::printStr(eUtf8, scr, x1, baseline, lines[i], 0, 0, fontSize);
+	}
+}
+
+string boolLabel(bool enabled)
+{
+	return enabled ? "On" : "Off";
+}
+
+string themeLabel()
+{
+	if(settings::lowLightMode()) return SAY2(invert);
+	return settings::nightMode() ? kThemeNight : kThemePaper;
+}
+
+string styleLabel()
+{
+	using namespace renderTech;
+	switch(settings::tech) {
+		case linux:
+			return "Linux";
+		case linux_v:
+			return "Linux V";
+		case windows:
+			return "Windows";
+		case windows_v:
+			return "Windows V";
+		case phone:
+		default:
+			return "Phone";
+	}
+}
+
+string layoutLabel()
+{
+	switch(settings::layout) {
+		case d90:
+			return "90deg";
+		case d180:
+			return "180deg";
+		case d270:
+			return "270deg";
+		case d0:
+		default:
+			return "0deg";
+	}
+}
+
+string screenModeLabel()
+{
+	switch(settings::scrConf) {
+		case scTop:
+			return SAY2(top);
+		case scBottom:
+			return SAY2(bottom);
+		case scBoth:
+		default:
+			return SAY2(both);
+	}
+}
+
+string brightnessLabel(int level)
+{
+	static const char* kLevels[] = {"Dim", "Soft", "Bright", "Max"};
+	clamp(level, 0, 3);
+	return kLevels[level];
+}
+
+void drawTopContextOverlay(const string& bookTitle, const string& heading, const string& detailText, const string& summaryText, const string& footerText)
+{
+	const int width = renderer::screenTextWidth(top_scr) - 1;
+	const int height = renderer::screenTextHeight(top_scr) - 1;
+	const int pad = 12;
+	const int right = width - pad;
+	const int heroY1 = 12;
+	const int heroY2 = 48;
+	const int bodyY1 = 60;
+	const int bodyY2 = height - 16;
+	const int footerY1 = bodyY2 - 28;
+
+	renderer::fillRect(pad, heroY1, right, heroY2, Blend(28), top_scr);
+	renderer::rect(pad, heroY1, right, heroY2, top_scr);
+	renderer::printStr(eUtf8, top_scr, pad + 10, heroY1 + 20, heading, 0, 0, 17);
+	renderer::printStr(eUtf8, top_scr, right - MIN(150, renderer::strWidth(eUtf8, bookTitle, 0, 0, 9) + 10), heroY1 + 32, bookTitle, 0, 0, 9);
+
+	renderer::fillRect(pad, bodyY1, right, bodyY2, Blend(18), top_scr);
+	renderer::rect(pad, bodyY1, right, bodyY2, top_scr);
+	drawWrappedText(top_scr, pad + 10, bodyY1 + 14, right - pad - 20, detailText, 11, 3);
+	drawWrappedText(top_scr, pad + 10, bodyY1 + 68, right - pad - 20, summaryText, 10, 3);
+	renderer::fillRect(pad + 8, footerY1, right - 8, bodyY2 - 8, Blend(24), top_scr);
+	renderer::rect(pad + 8, footerY1, right - 8, bodyY2 - 8, top_scr);
+	drawWrappedText(top_scr, pad + 16, footerY1 + 8, right - pad - 32, footerText, 9, 2);
+}
+
 int lineScrollForwardKey()
 {
 	switch(settings::layout) {
@@ -1128,6 +1227,11 @@ bool Book :: menu()
 			exitBook = true;
 			break;
 		}
+		else if(SAY(light) == t) {
+			if(brightnessMenu()) settingsDirty = true;
+			if(appShouldExit()) return true;
+			drawMenu(false);
+		}
 		else if(SAY(invert) == t) {
 			settings::setLowLightMode(!settings::lowLightMode());
 			clearParagraphCache();
@@ -1223,8 +1327,9 @@ bool Book :: menu()
 			line_gap += (rLeft == menuGrid.val) ? -1: 1;
 			clamp(line_gap, 0, 20);
 			if(old == line_gap) continue;
+			current_page.line_num = 0;
 			clearParagraphCache();
-			drawMenu(false);
+			drawMenu();
 			settingsDirty = true;
 		}
 		else if(SAY(indent) == t) {
@@ -1233,6 +1338,7 @@ bool Book :: menu()
 			first_indent += (rLeft == menuGrid.val) ? -1: 1;
 			clamp(first_indent, 0, 50);
 			if(old == first_indent) continue;
+			current_page.line_num = 0;
 			clearParagraphCache();
 			drawMenu();
 			settingsDirty = true;
@@ -1254,6 +1360,7 @@ void Book :: drawMenu(bool recache)
 	u32 it = menuGrid.iter;
 	menuGrid = grid(it);
 	menuGrid.push(SAY(close), 1)
+	->push(SAY(light))
 	->push(SAY(invert))
 	->push(SAY(justify))	
 	->push(SAY(rotate))
@@ -1269,12 +1376,135 @@ void Book :: drawMenu(bool recache)
 	->push(SAY(sharp))
 	->push(SAY(language));
 	draw_page(true, recache);
+	char fontBuf[16];
+	char gapBuf[8];
+	char indentBuf[8];
+	char gammaBuf[8];
+	char sizeBuf[8];
+	sprintf(fontBuf, "%dpx", settings::font_size);
+	sprintf(gapBuf, "%d", settings::line_gap);
+	sprintf(indentBuf, "%d", settings::first_indent);
+	sprintf(gammaBuf, "%d", settings::gamma);
+	sprintf(sizeBuf, "%d", settings::font_size);
+	const string detailText = string("Backlight ") + brightnessLabel(settings::brightness) +
+		" | " + themeLabel() + " theme | " + fontBuf + " | gap " + gapBuf + " | indent " + indentBuf;
+	const string summaryText = progressLabel(current_page.parag_num, total_paragraths()) +
+		" | rot " + layoutLabel() + " | " + screenModeLabel() + " | justify " + boolLabel(settings::justify) +
+		" | bar " + boolLabel(settings::pbar) + " | " + styleLabel();
+	drawTopContextOverlay(noExt(noPath(bookFile)), "Reading Settings", detailText, summaryText,
+		"Tap a tile to change it. Use the left or right half of +/- tiles. Down closes settings.");
 	renderer::setTopScreenMirror(false);
 	renderer::clearScreens(settings::bgCol, bottom_scr);
 	menuGrid.draw();
-	if(settings::lowLightMode()) menuGrid.print(SAY(colors), SAY2(invert));
-	else menuGrid.print(SAY(colors), settings::nightMode() ? kThemeNight : kThemePaper);
+	menuGrid.print(SAY(light), brightnessLabel(settings::brightness));
+	menuGrid.print(SAY(justify), boolLabel(settings::justify));
+	menuGrid.print(SAY(gamma), string(gammaBuf));
+	menuGrid.print(SAY(pbar), boolLabel(settings::pbar));
+	menuGrid.print(SAY(screens), screenModeLabel());
+	menuGrid.print(SAY(size), string(sizeBuf));
+	menuGrid.print(SAY(font), noExt(settings::font));
+	menuGrid.print(SAY(style), styleLabel());
+	menuGrid.print(SAY(gap), string(gapBuf));
+	menuGrid.print(SAY(indent), string(indentBuf));
+	menuGrid.print(SAY(colors), themeLabel());
 	setBacklightMode(blOverlay);
+}
+
+bool Book :: brightnessMenu()
+{
+	bool changed = false;
+	const int width = screens::layoutX();
+	const int pad = 12;
+	const int levelsY1 = 86;
+	const int levelsY2 = 128;
+	const int doneY1 = 178;
+	const int doneY2 = 216;
+	const int gap = 6;
+	const int levelWidth = (width - pad * 2 - gap * 3) / 4;
+	button levelButtons[4];
+	button doneButton("Done", pad, doneY1, width - pad, doneY2, 13);
+	doneButton.enableAutoFit(10);
+
+	while(pumpPowerManagement()) {
+		draw_page(true, false);
+		const string detailText = string("Current level: ") + brightnessLabel(settings::brightness) +
+			". The hardware backlight updates immediately so you can judge the change on the console.";
+		const string summaryText = string("Level ") + brightnessLabel(settings::brightness) +
+			" | screen mode " + screenModeLabel() + " | theme " + themeLabel();
+		drawTopContextOverlay(noExt(noPath(bookFile)), "Backlight", detailText, summaryText,
+			"Use Left or Right to change the level. Tap Done or press Down to return to settings.");
+
+		renderer::clearScreens(settings::bgCol, bottom_scr);
+		renderer::fillRect(pad, 18, width - pad, 70, Blend(18), bottom_scr);
+		renderer::rect(pad, 18, width - pad, 70, bottom_scr);
+		renderer::printStr(eUtf8, bottom_scr, pad + 10, 36, "Adjust Brightness", 0, 0, 15);
+		renderer::printStr(eUtf8, bottom_scr, pad + 10, 58, brightnessLabel(settings::brightness), 0, 0, 11);
+
+		for(int i = 0; i < 4; ++i) {
+			const int x1 = pad + i * (levelWidth + gap);
+			const int x2 = x1 + levelWidth;
+			if(i == settings::brightness)
+				renderer::fillRect(x1, levelsY1, x2, levelsY2, Blend(72), bottom_scr);
+			levelButtons[i] = button(brightnessLabel(i), x1, levelsY1, x2, levelsY2, 11);
+			levelButtons[i].enableAutoFit(8);
+			levelButtons[i].draw();
+		}
+
+		const int meterX1 = pad;
+		const int meterX2 = width - pad;
+		const int meterY1 = 144;
+		const int meterY2 = 162;
+		renderer::rect(meterX1, meterY1, meterX2, meterY2, bottom_scr);
+		const int stepWidth = (meterX2 - meterX1 - 6) / 4;
+		for(int i = 0; i <= settings::brightness; ++i) {
+			const int x1 = meterX1 + 3 + i * stepWidth;
+			const int x2 = MIN(meterX2 - 3, x1 + stepWidth - 4);
+			renderer::fillRect(x1, meterY1 + 3, x2, meterY2 - 3, Blend(104), bottom_scr);
+		}
+
+		doneButton.draw();
+		renderer::printClock(bottom_scr, true);
+		setBacklightMode(blOverlay);
+
+		swiWaitForVBlank();
+		scanKeys();
+		const int down = keysDown();
+		if(!down) continue;
+
+		if(down & rKey(rLeft)) {
+			const int old = settings::brightness;
+			settings::brightness = MAX(0, settings::brightness - 1);
+			if(old != settings::brightness) {
+				applyBrightness();
+				changed = true;
+			}
+			continue;
+		}
+		if(down & rKey(rRight)) {
+			const int old = settings::brightness;
+			settings::brightness = MIN(3, settings::brightness + 1);
+			if(old != settings::brightness) {
+				applyBrightness();
+				changed = true;
+			}
+			continue;
+		}
+		if(down & rKey(rDown)) break;
+		if(!(down & KEY_TOUCH)) continue;
+
+		if(doneButton.touched()) break;
+		for(int i = 0; i < 4; ++i) {
+			if(!levelButtons[i].touched()) continue;
+			if(settings::brightness != i) {
+				settings::brightness = i;
+				applyBrightness();
+				changed = true;
+			}
+			break;
+		}
+	}
+
+	return changed;
 }
 
 void Book :: saveMarks()

@@ -38,6 +38,9 @@ const u32 kPreviewCacheEntries = 12u;
 const u32 kPreviewPathCacheEntries = 16u;
 const bool kPreviewCoversEnabled = true;
 const int kScrollbarFlashFrames = 30;
+button gBrowserBackButton;
+button gBrowserOpenButton;
+button gBrowserMenuButton;
 
 string gLastBrowserPath;
 int gLastBrowserPos = 0;
@@ -84,20 +87,19 @@ void previewFrameRect(int width, int bottomLimit, int& x1, int& y1, int& x2, int
 {
 	x1 = 12;
 	x2 = width - 12;
-	y1 = topPreviewPortrait(width) ? 118 : 116;
+	y1 = topPreviewPortrait(width) ? 64 : 58;
 	y2 = bottomLimit;
 }
 
 int browserListRight(bool reserveScrollbar)
 {
-	(void)reserveScrollbar;
-	return MAX(40, int(screens::layoutX()) - 1);
+	return MAX(80, int(screens::layoutX()) - (reserveScrollbar ? kBrowserScrollbarGutter + 18 : 12));
 }
 
 bool browserNeedsScrollbar(u32 totalEntries)
 {
-	const int rowHeight = buttonFontSize;
-	const int visibleRows = MAX(1, int(screens::layoutY()) / rowHeight - 1);
+	const int rowHeight = buttonFontSize + 6;
+	const int visibleRows = MAX(1, (int(screens::layoutY()) - 104) / rowHeight);
 	return totalEntries > u32(visibleRows);
 }
 
@@ -553,6 +555,24 @@ void storePreviewCache(const string& file_name, const vector<u16>& pixels, u16 w
 	slot->stamp = gPreviewCacheStamp++;
 }
 
+bool copyCachedPreviewLocal(const string& file_name, vector<u16>& pixels, u16& width, u16& height)
+{
+	const PreviewCacheEntry* best = NULL;
+	for(u32 i = 0; i < gPreviewCache.size(); ++i) {
+		const PreviewCacheEntry& entry = gPreviewCache[i];
+		if(entry.file != file_name || !entry.hasImage || entry.pixels.empty())
+			continue;
+		if(best == NULL || entry.width * entry.height > best->width * best->height)
+			best = &entry;
+	}
+	if(best == NULL) return false;
+
+	pixels = best->pixels;
+	width = best->width;
+	height = best->height;
+	return true;
+}
+
 bool tryLoadPreviewPathCache(const string& file_name, string& imagePath)
 {
 	for(u32 i = 0; i < gPreviewPathCache.size(); ++i) {
@@ -792,6 +812,11 @@ void drawFolderIcon(int x1, int y1, int x2, int y2)
 
 } // namespace
 
+bool copyCachedPreview(const string& file_name, vector<u16>& pixels, u16& width, u16& height)
+{
+	return copyCachedPreviewLocal(file_name, pixels, width, height);
+}
+
 bool comp(entry e1, entry e2)
 {
 	if(e1.first == e2.first) return 0 > strcmp(e1.second.c_str(), e2.second.c_str());
@@ -960,41 +985,33 @@ void file_browser :: drawPreview()
 	const int rightPad = width - 12;
 	const bool portrait = topPreviewPortrait(width);
 	int previewX1, previewY1, previewX2, previewY2;
-	previewFrameRect(width, height - 12, previewX1, previewY1, previewX2, previewY2);
-	const int pathY1 = 14;
-	const int pathY2 = 46;
-	const int titleY1 = 56;
-	const int titleY2 = 104;
-
-	renderer::fillRect(leftPad, pathY1, rightPad, pathY2, Blend(18), top_scr);
-	renderer::rect(leftPad, pathY1, rightPad, pathY2, top_scr);
-	drawWrappedText(top_scr, leftPad + 8, pathY1 + (portrait ? 13 : 9), rightPad - leftPad - 16, path, portrait ? 8 : 9, portrait ? 1 : 2);
-
+	previewFrameRect(width, height - 14, previewX1, previewY1, previewX2, previewY2);
+	const int titleY1 = 14;
+	const int titleY2 = portrait ? 52 : 48;
 	renderer::fillRect(leftPad, titleY1, rightPad, titleY2, Blend(22), top_scr);
 	renderer::rect(leftPad, titleY1, rightPad, titleY2, top_scr);
-
 	renderer::fillRect(previewX1, previewY1, previewX2, previewY2, Blend(16), top_scr);
 	renderer::rect(previewX1, previewY1, previewX2, previewY2, top_scr);
 
 	if(flist.empty()) {
-		drawWrappedText(top_scr, leftPad + 8, titleY1 + (topPreviewPortrait(width) ? 18 : 15), rightPad - leftPad - 16,
+		drawWrappedText(top_scr, leftPad + 8, titleY1 + (portrait ? 14 : 12), rightPad - leftPad - 16,
 			"No EPUB files in this folder", topPreviewPortrait(width) ? 10 : 11, topPreviewPortrait(width) ? 1 : 2);
-		drawPreviewIcon(previewX1 + 6, previewY1 + 6, previewX2 - 6, previewY2 - 24);
-		drawWrappedText(top_scr, previewX1 + 12, previewY2 - 38, previewX2 - previewX1 - 24, "Copy books into sdmc:/books/ or use Left to go back.", 10, 2);
+		drawPreviewIcon(previewX1 + 6, previewY1 + 6, previewX2 - 6, previewY2 - 34);
+		drawWrappedText(top_scr, previewX1 + 14, previewY2 - 34, previewX2 - previewX1 - 28, "Copy books into sdmc:/books/ or press Left to go back.", 10, 2);
 		return;
 	}
 
 	const entry& current = flist[cursor];
-	drawWrappedText(top_scr, leftPad + 8, titleY1 + (portrait ? 18 : 15), rightPad - leftPad - 16, previewLabel(current), portrait ? 10 : 11, portrait ? 1 : 2);
+	drawWrappedText(top_scr, leftPad + 8, titleY1 + (portrait ? 14 : 12), rightPad - leftPad - 16, previewLabel(current), portrait ? 10 : 11, portrait ? 1 : 2);
 
 	if(current.first == folder) {
-		drawFolderIcon(previewX1 + 8, previewY1 + 8, previewX2 - 8, previewY2 - 24);
-		drawWrappedText(top_scr, previewX1 + 12, previewY2 - 30, previewX2 - previewX1 - 24, "Open folder", 10, 1);
+		drawFolderIcon(previewX1 + 8, previewY1 + 8, previewX2 - 8, previewY2 - 34);
+		drawWrappedText(top_scr, previewX1 + 12, previewY2 - 28, previewX2 - previewX1 - 24, "Open folder", 10, 1);
 	}
 	else {
 		if(previewPending && previewFile == path + current.second) {
 			drawPreviewIcon(previewX1 + 4, previewY1 + 4, previewX2 - 4, previewY2 - 4);
-			drawWrappedText(top_scr, previewX1 + 12, previewY2 - 30, previewX2 - previewX1 - 24,
+			drawWrappedText(top_scr, previewX1 + 12, previewY2 - 28, previewX2 - previewX1 - 24,
 				"Loading preview" + loadingDots(previewAnimTick), 10, 1);
 		}
 		else if(previewHasImage && !previewPixels.empty()) {
@@ -1009,7 +1026,8 @@ void file_browser :: drawPreview()
 			renderer::drawImageSlice(top_scr, drawX, drawY, previewPixels, previewWidth, previewHeight, 0, previewHeight);
 		}
 		else {
-			drawPreviewIcon(previewX1 + 4, previewY1 + 4, previewX2 - 4, previewY2 - 4);
+			drawPreviewIcon(previewX1 + 4, previewY1 + 4, previewX2 - 4, previewY2 - 22);
+			drawWrappedText(top_scr, previewX1 + 12, previewY2 - 28, previewX2 - previewX1 - 24, "No embedded cover", 10, 1);
 		}
 	}
 }
@@ -1043,27 +1061,75 @@ void file_browser :: drawPrompt()
 u16 file_browser :: draw(bool showScrollbar)
 {
 	buttons.clear();
-	u16 pen = 0;
 	const bool needsScroll = browserNeedsScrollbar(flist.size());
-	const int listRight = browserListRight(needsScroll && showScrollbar);
-	button header(path, 0, 0, listRight, buttonFontSize);
-	header.enableAutoFit(12);
+	const int width = screens::layoutX();
+	const int height = screens::layoutY();
+	const int pad = 10;
+	const int headerX1 = pad;
+	const int headerX2 = width - pad;
+	const int headerY1 = 10;
+	const int headerY2 = 48;
+	const int footerY2 = height - 10;
+	const int footerY1 = footerY2 - 36;
+	const int listY1 = headerY2 + 8;
+	const int listY2 = footerY1 - 8;
+	const int rowHeight = buttonFontSize + 6;
+	const int listX1 = pad;
+	const int listX2 = browserListRight(needsScroll && showScrollbar);
+	const int countWidth = 64;
+	const int summaryX2 = headerX2 - countWidth - 8;
+	int pen = listY1;
+
 	renderer::clearScreens(settings::bgCol, bottom_scr);
-	header.draw();
-	u16 height = header.height();
+
+	renderer::fillRect(headerX1, headerY1, headerX2, headerY2, Blend(20), bottom_scr);
+	renderer::rect(headerX1, headerY1, headerX2, headerY2, bottom_scr);
+	renderer::printStr(eUtf8, bottom_scr, headerX1 + 8, headerY1 + 16, "File Browser", 0, 0, 12);
+	drawWrappedText(bottom_scr, headerX1 + 8, headerY1 + 30, summaryX2 - headerX1 - 8, path, 8, 1);
+	char countBuf[16];
+	sprintf(countBuf, "%lu items", (unsigned long)flist.size());
+	renderer::printStr(eUtf8, bottom_scr, headerX2 - countWidth, headerY1 + 30, countBuf, 0, 0, 8);
+
+	renderer::rect(listX1, listY1, listX2, listY2, bottom_scr);
 	u16 i = pos;
-	for( ; i < flist.size() && pen <= screens::layoutY() - 2*height; i++) {
-		pen += height;
+	for( ; i < flist.size() && pen + rowHeight - 2 <= listY2; ++i) {
+		const int rowY1 = pen;
+		const int rowY2 = pen + rowHeight - 2;
 		if(int(i) == cursor)
-			renderer::fillRect(0, pen, listRight, pen + height, Blend(72), bottom_scr);
-		button item(flist[i].second, 0, pen, listRight, pen + height, buttonFontSize);
+			renderer::fillRect(listX1 + 1, rowY1 + 1, listX2 - 1, rowY2 - 1, Blend(72), bottom_scr);
+		button item(flist[i].second, listX1, rowY1, listX2, rowY2, buttonFontSize);
 		item.enableAutoFit(12);
 		buttons.push_back(fbutton(flist[i].first, item));
 		buttons.back().second.draw();
+		pen += rowHeight;
 	}
 	const u16 visible = i - pos;
-	if(showScrollbar && visible < flist.size() && flist.size())
-		sbar.draw(float(pos) / (flist.size() - visible), float(buttons.size())/flist.size());
+	if(showScrollbar && visible < flist.size() && flist.size()) {
+		const int scrollX1 = listX2 + 6;
+		const int scrollX2 = headerX2 - 2;
+		renderer::rect(scrollX1, listY1, scrollX2, listY2, bottom_scr);
+		const float size = float(visible) / flist.size();
+		const float posf = float(pos) / (flist.size() - visible);
+		const int trackHeight = listY2 - listY1;
+		const int low = listY1 + int(posf * (1.0f - size) * trackHeight);
+		const int high = MIN(listY2, low + MAX(10, int(size * trackHeight)));
+		renderer::fillRect(scrollX1 + 1, low + 1, scrollX2 - 1, high - 1, Blend(128), bottom_scr);
+	}
+
+	const int footerGap = 8;
+	const int footerButtonWidth = (width - pad * 2 - footerGap * 2) / 3;
+	gBrowserBackButton = button("Back", pad, footerY1, pad + footerButtonWidth, footerY2, 12);
+	gBrowserOpenButton = button("Open", pad + footerButtonWidth + footerGap, footerY1,
+		pad + footerButtonWidth * 2 + footerGap, footerY2, 12);
+	gBrowserMenuButton = button("Start Menu", pad + (footerButtonWidth + footerGap) * 2, footerY1,
+		width - pad, footerY2, 12);
+	gBrowserBackButton.enableAutoFit(9);
+	gBrowserOpenButton.enableAutoFit(9);
+	gBrowserMenuButton.enableAutoFit(9);
+	gBrowserBackButton.draw();
+	gBrowserOpenButton.draw();
+	gBrowserMenuButton.draw();
+
 	return i - pos;
 }
 
@@ -1113,6 +1179,11 @@ string file_browser :: run()
 		int down = keysDown();
 		if(!down) continue;
 
+		if(down & KEY_START) {
+			saveBrowserState(path, pos, cursor);
+			resetPreview();
+			return string();
+		}
 		if(down & rKey(rLeft)) {
 			if(path != sdRootPath()) {
 				resetPreview();
@@ -1145,6 +1216,35 @@ string file_browser :: run()
 			upd();
 		}
 		else if(down & KEY_TOUCH) {
+			if(gBrowserBackButton.touched()) {
+				if(path != sdRootPath()) {
+					resetPreview();
+					path.erase(path.find_last_of('/', path.size() - 2) + 1);
+					cd();
+					upd();
+				}
+				else {
+					saveBrowserState(path, pos, cursor);
+					resetPreview();
+					return string();
+				}
+				continue;
+			}
+			if(gBrowserOpenButton.touched()) {
+				const string selected = activateCursor();
+				if(!selected.empty()) {
+					saveBrowserState(path, pos, cursor);
+					resetPreview();
+					return selected;
+				}
+				upd();
+				continue;
+			}
+			if(gBrowserMenuButton.touched()) {
+				saveBrowserState(path, pos, cursor);
+				resetPreview();
+				return string();
+			}
 			for(u16 i = 0; i < buttons.size(); i++) {
 				if(!buttons[i].second.touched()) continue;
 				cursor = pos + i;

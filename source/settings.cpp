@@ -107,6 +107,12 @@ struct settStruct {
 		layout = llayout; tech = Tech;
 		bgCol = BgCol; fCol = FCol;
 		scrConf = ScrConf;
+		clamp(font_size, 10, 32);
+		clamp(first_indent, 0, 50);
+		clamp(line_gap, 0, 20);
+		clamp(BGR, 0, 3);
+		if(layout < d0 || layout > d270) layout = d0;
+		if(scrConf < scTop || scrConf > scBoth) scrConf = scBoth;
 	}
 };
 
@@ -149,6 +155,8 @@ void load()
 	}
 	else {
 		st.apply();
+		clamp(brightness, 0, 3);
+		clamp(gamma, 0, 2);
 		if((sameColor(bgCol, kLegacyPaperBg) && sameColor(fCol, kLegacyPaperFg)) ||
 			(sameColor(bgCol, kOldPaperBg) && sameColor(fCol, kOldPaperFg))) {
 			bgCol = kPaperBg;

@@ -1,4 +1,5 @@
 #include "epub.h"
+#include "file_browser.h"
 #include <algorithm>
 #include <setjmp.h>
 #include <string.h>
@@ -51,41 +52,102 @@ string compactBookTitle(const string& name, u32 maxChars)
 	return name.substr(0, maxChars - 3) + "...";
 }
 
+void drawLoadingCover(const string& bookFile, int x1, int y1, int x2, int y2)
+{
+	static string cachedFile;
+	static vector<u16> cachedPixels;
+	static u16 cachedWidth = 0;
+	static u16 cachedHeight = 0;
+	static bool cacheReady = false;
+	static bool hasCachedImage = false;
+
+	if(cachedFile != bookFile || !cacheReady) {
+		cachedFile = bookFile;
+		cachedPixels.clear();
+		cachedWidth = cachedHeight = 0;
+		hasCachedImage = copyCachedPreview(bookFile, cachedPixels, cachedWidth, cachedHeight);
+		cacheReady = true;
+	}
+
+	renderer::fillRect(x1, y1, x2, y2, Blend(10), top_scr);
+	renderer::rect(x1, y1, x2, y2, top_scr);
+	if(hasCachedImage && !cachedPixels.empty() && cachedWidth > 0 && cachedHeight > 0) {
+		const int innerX1 = x1 + 6;
+		const int innerY1 = y1 + 6;
+		const int innerX2 = x2 - 6;
+		const int innerY2 = y2 - 6;
+		const int boxW = innerX2 - innerX1 + 1;
+		const int boxH = innerY2 - innerY1 + 1;
+		const int drawX = innerX1 + (boxW - cachedWidth) / 2;
+		const int drawY = innerY1 + (boxH - cachedHeight) / 2;
+		renderer::drawImageSlice(top_scr, drawX, drawY, cachedPixels, cachedWidth, cachedHeight, 0, cachedHeight);
+		return;
+	}
+
+	renderer::printStr(eUtf8, top_scr, x1 + 18, y1 + 52, "EPUB", 0, 0, 16);
+	renderer::printStr(eUtf8, top_scr, x1 + 14, y1 + 74, "Preview", 0, 0, 10);
+}
+
 void drawOpenProgress(const string& bookFile, u32 current, u32 total)
 {
 	renderer::setTopScreenMirror(false);
 	renderer::clearScreens(settings::bgCol);
 	const int topW = renderer::screenTextWidth(top_scr) - 1;
 	const int topH = renderer::screenTextHeight(top_scr) - 1;
-	const int cardX1 = 16;
-	const int cardX2 = topW - 16;
-	const int cardY1 = 48;
-	const int cardY2 = topH - 28;
+	const int left = 16;
+	const int right = topW - 16;
+	const int titleY1 = 14;
+	const int titleY2 = 54;
+	const int coverY1 = 66;
+	const int coverY2 = topH - 14;
+	const int coverX1 = left;
+	const int coverX2 = right;
 	string dots;
 	for(u32 i = 0; i < ((current / kOpenProgressUpdateStep) % 4u); ++i) dots += '.';
 
-	renderer::fillRect(cardX1, cardY1, cardX2, cardY2, Blend(18), top_scr);
-	renderer::rect(cardX1, cardY1, cardX2, cardY2, top_scr);
-	renderer::printStr(eUtf8, top_scr, cardX1 + 12, cardY1 + 22, "Opening Book", 0, 0, 18);
-	renderer::printStr(eUtf8, top_scr, cardX1 + 12, cardY1 + 46, compactBookTitle(noExt(noPath(bookFile)), 34), 0, 0, 12);
-	renderer::printStr(eUtf8, top_scr, cardX1 + 12, cardY1 + 68, ("Loading" + dots), 0, 0, 12);
+	renderer::fillRect(left, titleY1, right, titleY2, Blend(22), top_scr);
+	renderer::rect(left, titleY1, right, titleY2, top_scr);
+	renderer::printStr(eUtf8, top_scr, left + 10, titleY1 + 20, compactBookTitle(noExt(noPath(bookFile)), 34), 0, 0, 14);
+	renderer::printStr(eUtf8, top_scr, left + 10, titleY1 + 34, "Preview", 0, 0, 9);
+	drawLoadingCover(bookFile, coverX1, coverY1, coverX2, coverY2);
 
-	const int barX1 = cardX1 + 12;
-	const int barX2 = cardX2 - 12;
-	const int barY1 = cardY2 - 34;
-	const int barY2 = cardY2 - 20;
-	renderer::rect(barX1, barY1, barX2, barY2, top_scr);
+	renderer::clearScreens(settings::bgCol, bottom_scr);
+	const int panelX1 = 12;
+	const int panelX2 = screens::layoutX() - 12;
+	const int titleCardY1 = 18;
+	const int titleCardY2 = 86;
+	const int progressCardY1 = 98;
+	const int progressCardY2 = 174;
+	const int footerY1 = 186;
+	const int footerY2 = screens::layoutY() - 10;
+
+	renderer::fillRect(panelX1, titleCardY1, panelX2, titleCardY2, Blend(18), bottom_scr);
+	renderer::rect(panelX1, titleCardY1, panelX2, titleCardY2, bottom_scr);
+	renderer::printStr(eUtf8, bottom_scr, panelX1 + 10, titleCardY1 + 18, "Opening Book", 0, 0, 17);
+	renderer::printStr(eUtf8, bottom_scr, panelX1 + 10, titleCardY1 + 40, compactBookTitle(noExt(noPath(bookFile)), 24), 0, 0, 11);
+	renderer::printStr(eUtf8, bottom_scr, panelX1 + 10, titleCardY1 + 58, ("Building index" + dots), 0, 0, 11);
+
+	renderer::fillRect(panelX1, progressCardY1, panelX2, progressCardY2, Blend(10), bottom_scr);
+	renderer::rect(panelX1, progressCardY1, panelX2, progressCardY2, bottom_scr);
+	renderer::printStr(eUtf8, bottom_scr, panelX1 + 10, progressCardY1 + 18, "Chapter Progress", 0, 0, 10);
+	char progress[48];
+	sprintf(progress, "%lu / %lu chapters", (unsigned long)MIN(current, total), (unsigned long)total);
+	renderer::printStr(eUtf8, bottom_scr, panelX1 + 10, progressCardY1 + 44, progress, 0, 0, 16);
+
+	const int barX1 = panelX1 + 10;
+	const int barX2 = panelX2 - 10;
+	const int barY1 = progressCardY1 + 56;
+	const int barY2 = barY1 + 16;
+	renderer::rect(barX1, barY1, barX2, barY2, bottom_scr);
 	if(total > 0) {
 		const int fillX2 = barX1 + int((u64)(barX2 - barX1) * MIN(current, total) / total);
 		if(fillX2 > barX1)
-			renderer::fillRect(barX1 + 1, barY1 + 1, fillX2, barY2 - 1, Blend(112), top_scr);
+			renderer::fillRect(barX1 + 1, barY1 + 1, fillX2, barY2 - 1, Blend(112), bottom_scr);
 	}
 
-	renderer::clearScreens(settings::bgCol, bottom_scr);
-	char progress[48];
-	sprintf(progress, "%lu / %lu chapters", (unsigned long)MIN(current, total), (unsigned long)total);
-	renderer::printStr(eUtf8, bottom_scr, 16, 34, progress, 0, 0, 13);
-	renderer::printStr(eUtf8, bottom_scr, 16, 58, "Please wait", 0, 0, 11);
+	renderer::fillRect(panelX1, footerY1, panelX2, footerY2, Blend(20), bottom_scr);
+	renderer::rect(panelX1, footerY1, panelX2, footerY2, bottom_scr);
+	renderer::printStr(eUtf8, bottom_scr, panelX1 + 10, footerY1 + 18, "Top screen keeps the EPUB preview visible while loading.", 0, 0, 10);
 	renderer::present();
 }
 
