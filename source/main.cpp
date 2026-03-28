@@ -181,6 +181,50 @@ void drawCardValue(int x, int y, int width, const string& value, u32 fontSize, u
 	}
 }
 
+bool menuHasArt()
+{
+	return ensureMenuArtLoaded() && !gMenuArtRgba.empty() && gMenuArtWidth != 0 && gMenuArtHeight != 0;
+}
+
+string menuRecentLabel(bool& canResume)
+{
+	canResume = !settings::recent_book.empty() && book_ok(settings::recent_book);
+	return canResume
+		? noExt(noPath(settings::recent_book))
+		: string("No recent book yet. Open Files on the bottom screen to browse your EPUB library.");
+}
+
+bool drawMenuCurrentBookTitle()
+{
+	const int width = renderer::screenTextWidth(top_scr) - 1;
+	const int left = 12;
+	const int right = width - 12;
+	const bool portrait = width < 300;
+	bool canResume = false;
+	const string recentLabel = menuRecentLabel(canResume);
+
+	if(!portrait) {
+		const int textRight = menuHasArt() ? right - 148 : right - 12;
+		const int titleBoxY1 = 108;
+		const int titleBoxY2 = 144;
+		renderer::fillRect(left + 12, titleBoxY1, textRight, titleBoxY2, Blend(12), top_scr);
+		renderer::rect(left + 12, titleBoxY1, textRight, titleBoxY2, top_scr);
+		if(canResume)
+			return renderer::drawMarqueeText(top_scr, left + 12, titleBoxY1, textRight, titleBoxY2, recentLabel, 14, gMenuTitleTick, 8);
+		drawCardValue(left + 16, 124, textRight - left - 12, recentLabel, 12, 4);
+		return false;
+	}
+
+	const int titleBoxY1 = 98;
+	const int titleBoxY2 = 132;
+	renderer::fillRect(left + 12, titleBoxY1, right - 12, titleBoxY2, Blend(12), top_scr);
+	renderer::rect(left + 12, titleBoxY1, right - 12, titleBoxY2, top_scr);
+	if(canResume)
+		return renderer::drawMarqueeText(top_scr, left + 12, titleBoxY1, right - 12, titleBoxY2, recentLabel, 11, gMenuTitleTick, 6);
+	drawCardValue(left + 16, 112, right - left - 32, recentLabel, 10, 4);
+	return false;
+}
+
 void drawMenuButtonStrip()
 {
 	gMenuButtons.clear();
@@ -251,10 +295,6 @@ void drawMenuTopScreen()
 	const int left = 12;
 	const int right = width - 12;
 	const bool portrait = width < 300;
-	const bool canResume = !settings::recent_book.empty() && book_ok(settings::recent_book);
-	const string recentLabel = canResume
-		? noExt(noPath(settings::recent_book))
-		: string("No recent book yet. Open Files on the bottom screen to browse your EPUB library.");
 	gMenuNeedsTitleMarquee = false;
 
 	renderer::clearScreens(settings::bgCol, top_scr);
@@ -266,30 +306,15 @@ void drawMenuTopScreen()
 	if(!portrait) {
 		renderer::fillRect(left, 70, right, height - 16, Blend(18), top_scr);
 		renderer::rect(left, 70, right, height - 16, top_scr);
-		const bool hasArt = drawMenuArt(right - 134, 78, right - 18, height - 24);
-		const int textRight = hasArt ? right - 148 : right - 12;
+		drawMenuArt(right - 134, 78, right - 18, height - 24);
 		drawCardTitle(left + 12, 92, "Current Book");
-		const int titleBoxY1 = 108;
-		const int titleBoxY2 = 144;
-		renderer::fillRect(left + 12, titleBoxY1, textRight, titleBoxY2, Blend(12), top_scr);
-		renderer::rect(left + 12, titleBoxY1, textRight, titleBoxY2, top_scr);
-		if(canResume)
-			gMenuNeedsTitleMarquee = renderer::drawMarqueeText(top_scr, left + 12, titleBoxY1, textRight, titleBoxY2, recentLabel, 14, gMenuTitleTick, 8);
-		else
-			drawCardValue(left + 16, 124, textRight - left - 12, recentLabel, 12, 4);
+		gMenuNeedsTitleMarquee = drawMenuCurrentBookTitle();
 	}
 	else {
 		renderer::fillRect(left, 60, right, height - 18, Blend(18), top_scr);
 		renderer::rect(left, 60, right, height - 18, top_scr);
 		drawCardTitle(left + 12, 82, "Current Book");
-		const int titleBoxY1 = 98;
-		const int titleBoxY2 = 132;
-		renderer::fillRect(left + 12, titleBoxY1, right - 12, titleBoxY2, Blend(12), top_scr);
-		renderer::rect(left + 12, titleBoxY1, right - 12, titleBoxY2, top_scr);
-		if(canResume)
-			gMenuNeedsTitleMarquee = renderer::drawMarqueeText(top_scr, left + 12, titleBoxY1, right - 12, titleBoxY2, recentLabel, 11, gMenuTitleTick, 6);
-		else
-			drawCardValue(left + 16, 112, right - left - 32, recentLabel, 10, 4);
+		gMenuNeedsTitleMarquee = drawMenuCurrentBookTitle();
 		drawMenuArt(left + 16, 146, right - 16, height - 30);
 	}
 }
@@ -395,7 +420,7 @@ int main(int argc, char* argv[])
 		swiWaitForVBlank();
 		if(gMenuNeedsTitleMarquee) {
 			++gMenuTitleTick;
-			if(0 == (gMenuTitleTick % 6u)) drawMenuTopScreen();
+			gMenuNeedsTitleMarquee = drawMenuCurrentBookTitle();
 		}
 		scanKeys();
 		const int down = keysDown();

@@ -974,8 +974,7 @@ void Book :: bookmarkMenu()
 		swiWaitForVBlank();
 		if(marqueeActive) {
 			++marqueeTick;
-			if(0 == (marqueeTick % 6u))
-				redrawBookmarkMenu(false);
+			redrawBookmarkMenu(false);
 		}
 		scanKeys();
 		int down = keysDown();

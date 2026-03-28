@@ -983,29 +983,19 @@ void file_browser :: drawPreview()
 
 	const int width = renderer::screenTextWidth(top_scr) - 1;
 	const int height = renderer::screenTextHeight(top_scr) - 1;
-	const int leftPad = 10;
-	const int rightPad = width - 10;
-	const bool portrait = topPreviewPortrait(width);
 	int previewX1, previewY1, previewX2, previewY2;
 	previewFrameRect(width, height - 8, previewX1, previewY1, previewX2, previewY2);
-	const int titleY1 = 6;
-	const int titleY2 = portrait ? 26 : 24;
-	renderer::fillRect(leftPad, titleY1, rightPad, titleY2, Blend(22), top_scr);
-	renderer::rect(leftPad, titleY1, rightPad, titleY2, top_scr);
 	renderer::fillRect(previewX1, previewY1, previewX2, previewY2, Blend(16), top_scr);
 	renderer::rect(previewX1, previewY1, previewX2, previewY2, top_scr);
+	drawPreviewTitleBar();
 
 	if(flist.empty()) {
-		drawWrappedText(top_scr, leftPad + 8, titleY1 + (portrait ? 12 : 10), rightPad - leftPad - 16,
-			"No EPUB files in this folder", topPreviewPortrait(width) ? 10 : 11, topPreviewPortrait(width) ? 1 : 2);
 		drawPreviewIcon(previewX1 + 6, previewY1 + 6, previewX2 - 6, previewY2 - 34);
 		drawWrappedText(top_scr, previewX1 + 14, previewY2 - 34, previewX2 - previewX1 - 28, "Copy books into sdmc:/books/ or press Left to go back.", 10, 2);
 		return;
 	}
 
 	const entry& current = flist[cursor];
-	previewTitleMarquee = renderer::drawMarqueeText(top_scr, leftPad, titleY1, rightPad, titleY2, previewLabel(current), portrait ? 10 : 11, previewAnimTick, 8);
-
 	if(current.first == folder) {
 		drawFolderIcon(previewX1 + 8, previewY1 + 8, previewX2 - 8, previewY2 - 34);
 		drawWrappedText(top_scr, previewX1 + 12, previewY2 - 28, previewX2 - previewX1 - 24, "Open folder", 10, 1);
@@ -1032,6 +1022,29 @@ void file_browser :: drawPreview()
 			drawWrappedText(top_scr, previewX1 + 12, previewY2 - 28, previewX2 - previewX1 - 24, "No embedded cover", 10, 1);
 		}
 	}
+}
+
+void file_browser :: drawPreviewTitleBar()
+{
+	const int width = renderer::screenTextWidth(top_scr) - 1;
+	const int leftPad = 10;
+	const int rightPad = width - 10;
+	const bool portrait = topPreviewPortrait(width);
+	const int titleY1 = 6;
+	const int titleY2 = portrait ? 26 : 24;
+
+	renderer::fillRect(leftPad, titleY1, rightPad, titleY2, Blend(22), top_scr);
+	renderer::rect(leftPad, titleY1, rightPad, titleY2, top_scr);
+
+	if(flist.empty()) {
+		previewTitleMarquee = false;
+		drawWrappedText(top_scr, leftPad + 8, titleY1 + (portrait ? 12 : 10), rightPad - leftPad - 16,
+			"No EPUB files in this folder", portrait ? 10 : 11, portrait ? 1 : 2);
+		return;
+	}
+
+	previewTitleMarquee = renderer::drawMarqueeText(top_scr, leftPad, titleY1, rightPad, titleY2,
+		previewLabel(flist[cursor]), portrait ? 10 : 11, previewAnimTick, 8);
 }
 
 void file_browser :: drawPrompt()
@@ -1159,8 +1172,9 @@ string file_browser :: run()
 		swiWaitForVBlank();
 		if(previewPending || previewTitleMarquee) {
 			++previewAnimTick;
-			if((previewPending && 0 == (previewAnimTick % 12u)) ||
-				(previewTitleMarquee && 0 == (previewAnimTick % 6u)))
+			if(previewTitleMarquee)
+				drawPreviewTitleBar();
+			if(previewPending && 0 == (previewAnimTick % 12u))
 				drawPreview();
 		}
 		const bool previewUpdated = tickPreview();

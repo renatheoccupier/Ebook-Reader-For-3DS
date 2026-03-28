@@ -31,7 +31,7 @@ void ensureDir(const string& path)
 
 u32 brightnessValue()
 {
-	static const u32 kBrightnessLevels[] = {25u, 45u, 70u, 100u};
+	static const u32 kBrightnessLevels[] = {24u, 64u, 128u, 200u};
 	int level = settings::brightness;
 	clamp(level, 0, 3);
 	return kBrightnessLevels[level];
@@ -61,6 +61,20 @@ void setScreenBacklight(u32 screen, bool enabled)
 	GSPLCD_PowerOffBacklight(screen);
 }
 
+void applyBacklightState(bool forceMask = false)
+{
+	if(!gBacklightReady) return;
+
+	const u32 mask = targetBacklightMask(gCurrentBacklightMode);
+	if(forceMask || mask != gCurrentBacklightMask) {
+		setScreenBacklight(GSPLCD_SCREEN_TOP, 0 != (mask & GSPLCD_SCREEN_TOP));
+		setScreenBacklight(GSPLCD_SCREEN_BOTTOM, 0 != (mask & GSPLCD_SCREEN_BOTTOM));
+		gCurrentBacklightMask = mask;
+	}
+
+	GSPLCD_SetBrightness(mask, brightnessValue());
+}
+
 void aptStatusHook(APT_HookType hook, void* param)
 {
 	(void)param;
@@ -72,13 +86,7 @@ void aptStatusHook(APT_HookType hook, void* param)
 		case APTHOOK_ONRESTORE:
 		case APTHOOK_ONWAKEUP:
 			gAppSuspended = false;
-			if(gBacklightReady) {
-				const u32 mask = targetBacklightMask(gCurrentBacklightMode);
-				setScreenBacklight(GSPLCD_SCREEN_TOP, 0 != (mask & GSPLCD_SCREEN_TOP));
-				setScreenBacklight(GSPLCD_SCREEN_BOTTOM, 0 != (mask & GSPLCD_SCREEN_BOTTOM));
-				gCurrentBacklightMask = mask;
-				GSPLCD_SetBrightness(GSPLCD_SCREEN_BOTH, brightnessValue());
-			}
+			applyBacklightState(true);
 			renderer::markDirty();
 			gKeysDown = gKeysHeld = gKeysUp = 0;
 			break;
@@ -204,6 +212,8 @@ void initPowerManagement()
 	bool isNew3DS = false;
 	if(R_SUCCEEDED(APT_CheckNew3DS(&isNew3DS)) && isNew3DS)
 		osSetSpeedupEnable(true);
+	aptSetSleepAllowed(true);
+	aptSetHomeAllowed(true);
 	if(!gAptHookInstalled) {
 		aptHook(&gAptHookCookie, aptStatusHook, NULL);
 		gAptHookInstalled = true;
@@ -224,7 +234,7 @@ bool pumpPowerManagement()
 		return false;
 	}
 	while(!gShouldExit && (gAppSuspended || !aptIsActive())) {
-		gspWaitForVBlank();
+		svcSleepThread(16 * 1000 * 1000LL);
 		if(!aptMainLoop()) {
 			gShouldExit = true;
 			return false;
@@ -240,22 +250,13 @@ bool appShouldExit()
 
 void setBacklightMode(backlightMode mode)
 {
-	if(!gBacklightReady) return;
 	gCurrentBacklightMode = mode;
-
-	const u32 mask = targetBacklightMask(mode);
-	if(mask == gCurrentBacklightMask) return;
-
-	setScreenBacklight(GSPLCD_SCREEN_TOP, 0 != (mask & GSPLCD_SCREEN_TOP));
-	setScreenBacklight(GSPLCD_SCREEN_BOTTOM, 0 != (mask & GSPLCD_SCREEN_BOTTOM));
-	gCurrentBacklightMask = mask;
-	GSPLCD_SetBrightness(GSPLCD_SCREEN_BOTH, brightnessValue());
+	applyBacklightState();
 }
 
 void applyBrightness()
 {
-	if(!gBacklightReady) return;
-	GSPLCD_SetBrightness(GSPLCD_SCREEN_BOTH, brightnessValue());
+	applyBacklightState();
 }
 
 void cycleBacklight()

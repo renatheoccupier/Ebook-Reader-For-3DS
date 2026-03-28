@@ -31,8 +31,9 @@ static const u8 gamma067[32] = {0, 3, 5, 7, 8, 9, 10, 11, 13, 14, 15, 16, 16, 17
 namespace
 {
 
-static const u32 marqueeHoldSteps = 18;
-static const u32 marqueeFramesPerChar = 5;
+static const u32 marqueeStartHoldSteps = 16;
+static const u32 marqueeEndHoldSteps = 10;
+static const u32 marqueeFramesPerPixel = 1;
 
 int textLimitX(scr_id scr)
 {
@@ -42,58 +43,6 @@ int textLimitX(scr_id scr)
 inline u8 expand5(u8 value)
 {
 	return (value << 3) | (value >> 2);
-}
-
-u32 advanceChars(const string& str, u32 start, int count)
-{
-	const char* it = str.c_str() + start;
-	const char* end = str.c_str() + str.size();
-	for(int i = 0; i < count && it < end; ++i)
-		utf8::unchecked::next(it);
-	return it - str.c_str();
-}
-
-u32 clippedEnd(const string& str, u32 start, int width, u32 fontSize)
-{
-	int breakat = 0;
-	strWidth(eUtf8, str, start, 0, fontSize, fnormal, &breakat, width);
-	if(breakat <= 0) breakat = 1;
-	return advanceChars(str, start, breakat);
-}
-
-vector<u32> utf8Offsets(const string& str)
-{
-	vector<u32> offsets;
-	offsets.push_back(0);
-	const char* it = str.c_str();
-	const char* end = it + str.size();
-	while(it < end) {
-		utf8::unchecked::next(it);
-		offsets.push_back(it - str.c_str());
-	}
-	return offsets;
-}
-
-u32 marqueeStart(const string& str, int width, u32 fontSize, u32 marqueeStep)
-{
-	const vector<u32> offsets = utf8Offsets(str);
-	if(offsets.size() <= 1) return 0;
-
-	u32 endStart = offsets.size() - 2;
-	for(u32 i = 0; i + 1 < offsets.size(); ++i) {
-		if(strWidth(eUtf8, str, offsets[i], 0, fontSize) <= width) {
-			endStart = i;
-			break;
-		}
-	}
-	if(0 == endStart) return 0;
-
-	const u32 travelSteps = endStart * marqueeFramesPerChar;
-	const u32 cycle = marqueeHoldSteps + travelSteps;
-	if(0 == cycle) return 0;
-	const u32 phase = marqueeStep % cycle;
-	if(phase < marqueeHoldSteps) return 0;
-	return MIN(endStart, (phase - marqueeHoldSteps) / marqueeFramesPerChar);
 }
 
 bool entryIsDirectory(const string& basePath, const dirent* ent)
@@ -241,7 +190,14 @@ template<class T> inline void swapRB(T& r, T& b, scr_id scr)
 	}
 }
 
+void charLcdClipped(scr_id scr, int x, int y, FTC_SBit bitmap, int clipX1, int clipX2);
+
 void charLcd(scr_id scr, int x, int y, FTC_SBit bitmap)
+{
+	charLcdClipped(scr, x, y, bitmap, -0x7fff, 0x7fff);
+}
+
+void charLcdClipped(scr_id scr, int x, int y, FTC_SBit bitmap, int clipX1, int clipX2)
 {
 	u8* srcLine = bitmap->buffer;
 	u8 width = bitmap->width;
@@ -252,6 +208,7 @@ void charLcd(scr_id scr, int x, int y, FTC_SBit bitmap)
 		u16 col = settings::fCol;
 		for(u8 j = 0; j < height; ++j, srcLine += pitch)
 			for(u8 i = 0; i < width; ++i)
+				if(x + i >= clipX1 && x + i <= clipX2)
 				if(srcLine[i >> 3] & (0x80 >> (i & 7)))
 					putPixel(scr, x + i, j + y, (u16)col);
 		return;
@@ -283,6 +240,7 @@ void charLcd(scr_id scr, int x, int y, FTC_SBit bitmap)
 
 	for(u8 j = 0; j < height; ++j, srcLine += gap_line) {
 		for(u8 i = 0, *src = srcLine; i < width; ++i, src += gap_pix) {
+			if(x + i < clipX1 || x + i > clipX2) continue;
 			if(src[s0] || src[s1] || src[s2])
 				putPix(scr, x + i, j + y, Color(src[s0], src[s1], src[s2]));
 		}
@@ -519,11 +477,11 @@ FT_Face* selectStyle(fontStyle style)
 	return f[style];
 }
 
-int printStr(Encoding enc, scr_id scr, u16 x, u16 y, const string& str, u32 start, u32 end, u8 fontSize, fontStyle style)
+int printStrClipped(Encoding enc, scr_id scr, int x, int y, const string& str, u32 start, u32 end, u8 fontSize, fontStyle style, int clipX1, int clipX2)
 {
 	setFontSize(fontSize);
 	correctTech();
-	const u16 startx = x;
+	const int startx = x;
 	if(0 == end) end = str.size();
 	if(end > str.size() || start >= end) return 0;
 	FT_Face* fc = selectStyle(style);
@@ -545,12 +503,17 @@ int printStr(Encoding enc, scr_id scr, u16 x, u16 y, const string& str, u32 star
 			old_gi = 0;
 			continue;
 		}
-		if(x + ftcSBit->xadvance > textLimitX(scr)) break;
-		charLcd(scr, x + ftcSBit->left, y - ftcSBit->top, ftcSBit);
+		if(x > clipX2 || x > textLimitX(scr)) break;
+		charLcdClipped(scr, x + ftcSBit->left, y - ftcSBit->top, ftcSBit, clipX1, clipX2);
 		x += ftcSBit->xadvance;
 		old_gi = glyph_index;
 	}
 	return x - startx;
+}
+
+int printStr(Encoding enc, scr_id scr, u16 x, u16 y, const string& str, u32 start, u32 end, u8 fontSize, fontStyle style)
+{
+	return printStrClipped(enc, scr, x, y, str, start, end, fontSize, style, 0, textLimitX(scr));
 }
 
 int strWidth(Encoding enc, const string& str, u32 start, u32 end, u8 fontSize, fontStyle style, int* breakat, int spaceleft)
@@ -600,6 +563,44 @@ int strWidth(Encoding enc, const string& str, u32 start, u32 end, u8 fontSize, f
 	return width;
 }
 
+u32 marqueeByteOffset(const string& str, u32 fontSize, int scrollPx, int& pixelOffset)
+{
+	pixelOffset = 0;
+	if(scrollPx <= 0 || str.empty()) return 0;
+
+	setFontSize(fontSize);
+	correctTech();
+	FT_Face* fc = selectStyle(fnormal);
+	const bool use_kern = false;
+	FT_UInt glyph_index, old_gi = 0;
+	FT_Vector delta;
+	int width = 0;
+	for(const char* str_it = str.c_str(); *str_it != '\0'; ) {
+		const char* prev = str_it;
+		u32 cp = utf8::unchecked::next(str_it);
+		if(cp == L'­') continue;
+		glyph_index = FT_Get_Char_Index(*fc, cp);
+		int advance = 0;
+		if(use_kern) {
+			FT_Get_Kerning(*fc, old_gi, glyph_index, FT_KERNING_DEFAULT, &delta);
+			advance += delta.x >> 6;
+		}
+		FT_Error err = FTC_SBitCache_Lookup(ftcSBitCache, ftcImageType, glyph_index, &ftcSBit, NULL);
+		if(err) {
+			old_gi = 0;
+			continue;
+		}
+		advance += ftcSBit->xadvance;
+		if(width + advance > scrollPx) {
+			pixelOffset = scrollPx - width;
+			return prev - str.c_str();
+		}
+		width += advance;
+		old_gi = glyph_index;
+	}
+	return str.size();
+}
+
 bool drawMarqueeText(scr_id scr, int x1, int y1, int x2, int y2, const string& text, u32 fontSize, u32 marqueeStep, int pad)
 {
 	if(text.empty()) return false;
@@ -618,9 +619,19 @@ bool drawMarqueeText(scr_id scr, int x1, int y1, int x2, int y2, const string& t
 		return false;
 	}
 
-	const u32 start = marqueeStart(text, innerWidth, fontSize, marqueeStep);
-	const u32 end = clippedEnd(text, start, innerWidth, fontSize);
-	printStr(eUtf8, scr, innerX1, baselineY, text, start, end, fontSize);
+	const int travelPx = width - innerWidth;
+	const u32 cycle = marqueeStartHoldSteps + travelPx * marqueeFramesPerPixel + marqueeEndHoldSteps;
+	const u32 phase = (0 == cycle) ? 0 : (marqueeStep % cycle);
+	int scrollPx = 0;
+	if(phase < marqueeStartHoldSteps)
+		scrollPx = 0;
+	else if(phase < marqueeStartHoldSteps + travelPx * marqueeFramesPerPixel)
+		scrollPx = MIN(travelPx, int((phase - marqueeStartHoldSteps) / marqueeFramesPerPixel));
+	else
+		scrollPx = travelPx;
+	int pixelOffset = 0;
+	const u32 start = marqueeByteOffset(text, fontSize, scrollPx, pixelOffset);
+	printStrClipped(eUtf8, scr, innerX1 - pixelOffset, baselineY, text, start, 0, fontSize, fnormal, innerX1, innerX2);
 	return true;
 }
 

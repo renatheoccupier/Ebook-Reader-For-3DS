@@ -18,6 +18,7 @@ private:
 	void resetPreview();
 	void showPreview(const string& file_name);
 	void drawPreview();
+	void drawPreviewTitleBar();
 	void drawPrompt();
 	void clampCursor();
 	bool tickPreview();
