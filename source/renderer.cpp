@@ -89,13 +89,11 @@ u32 marqueeStart(const string& str, int width, u32 fontSize, u32 marqueeStep)
 	if(0 == endStart) return 0;
 
 	const u32 travelSteps = endStart * marqueeFramesPerChar;
-	const u32 cycle = marqueeHoldSteps + travelSteps + marqueeHoldSteps + travelSteps;
+	const u32 cycle = marqueeHoldSteps + travelSteps;
 	if(0 == cycle) return 0;
 	const u32 phase = marqueeStep % cycle;
 	if(phase < marqueeHoldSteps) return 0;
-	if(phase < marqueeHoldSteps + travelSteps) return (phase - marqueeHoldSteps) / marqueeFramesPerChar;
-	if(phase < marqueeHoldSteps + travelSteps + marqueeHoldSteps) return endStart;
-	return endStart - (phase - marqueeHoldSteps - travelSteps - marqueeHoldSteps) / marqueeFramesPerChar;
+	return MIN(endStart, (phase - marqueeHoldSteps) / marqueeFramesPerChar);
 }
 
 bool entryIsDirectory(const string& basePath, const dirent* ent)

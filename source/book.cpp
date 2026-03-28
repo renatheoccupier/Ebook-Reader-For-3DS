@@ -177,6 +177,29 @@ u32 wrappedListFont(const string& text, int width, int height, u32 maxFont, u32 
 	return minFont;
 }
 
+u32 singleLineListFont(int height, u32 maxFont, u32 minFont)
+{
+	int font = MIN(int(maxFont), MAX(int(minFont), height - 2 * kListTextPadY));
+	clamp(font, int(minFont), int(maxFont));
+	return (u32)font;
+}
+
+bool drawListRowLabel(int x1, int y1, int x2, int y2, const string& text, u32 maxFont, u32 minFont, bool selected, u32 marqueeStep)
+{
+	const int width = x2 - x1 + 1;
+	const int height = y2 - y1 + 1;
+	if(width <= 0 || height <= 0 || text.empty()) return false;
+
+	const u32 font = singleLineListFont(height, maxFont, minFont);
+	if(selected)
+		return renderer::drawMarqueeText(bottom_scr, x1, y1, x2, y2, text, font, marqueeStep, 0);
+
+	const string clipped = ellipsizedSlice(text, 0, width, font);
+	const int baseline = y1 + font - 1 + MAX(0, (height - int(font)) / 2);
+	renderer::printStr(eUtf8, bottom_scr, x1, baseline, clipped, 0, 0, font);
+	return false;
+}
+
 void drawListTextBlock(int x1, int y1, int x2, int y2, const string& text, u32 maxFont, u32 minFont)
 {
 	const int width = x2 - x1 + 1;
@@ -195,13 +218,13 @@ void drawListTextBlock(int x1, int y1, int x2, int y2, const string& text, u32 m
 	}
 }
 
-void drawBookmarkListRow(int x1, int y1, int x2, int y2, const string& label, u32 maxFont, u32 minFont)
+bool drawBookmarkListRow(int x1, int y1, int x2, int y2, const string& label, u32 maxFont, u32 minFont, bool selected, u32 marqueeStep)
 {
 	renderer::rect(x1, y1, x2, y2, bottom_scr);
-	drawListTextBlock(x1 + kListTextPadX, y1, x2 - kListTextPadX, y2, label, maxFont, minFont);
+	return drawListRowLabel(x1 + kListTextPadX, y1, x2 - kListTextPadX, y2, label, maxFont, minFont, selected, marqueeStep);
 }
 
-void drawBookmarkMarkRow(int x1, int y1, int x2, int y2, const string& progress, const string& label, u32 maxFont, u32 minFont)
+bool drawBookmarkMarkRow(int x1, int y1, int x2, int y2, const string& progress, const string& label, u32 maxFont, u32 minFont, bool selected, u32 marqueeStep)
 {
 	renderer::rect(x1, y1, x2, y2, bottom_scr);
 
@@ -212,7 +235,7 @@ void drawBookmarkMarkRow(int x1, int y1, int x2, int y2, const string& progress,
 	renderer::printStr(eUtf8, bottom_scr, dividerX - progressWidth - 4, progressBaseline, progress, 0, 0, progressFont);
 	renderer::vLine(dividerX, y1 + 4, y2 - 4, Blend(48));
 
-	drawListTextBlock(dividerX + 5, y1, x2 - kListTextPadX, y2, label, maxFont, minFont);
+	return drawListRowLabel(dividerX + 5, y1, x2 - kListTextPadX, y2, label, maxFont, minFont, selected, marqueeStep);
 }
 
 string collapseWhitespace(const string& text)
@@ -800,13 +823,13 @@ bool Book :: activateTocCursor()
 string Book :: tocFolderLabel() const
 {
 	if(tocPath.empty()) return "Contents";
-	return tocEntries[tocPath.back()].title;
+	return collapseWhitespace(tocEntries[tocPath.back()].title);
 }
 
 string Book :: tocRowLabel(u32 index) const
 {
 	if(index >= tocEntries.size()) return string();
-	return (tocHasChildren(index) ? string("> ") : string("  ")) + tocEntries[index].title;
+	return (tocHasChildren(index) ? string("> ") : string()) + collapseWhitespace(tocEntries[index].title);
 }
 
 string Book :: paragraphMenuLabel(u32 parag_num)
@@ -941,38 +964,47 @@ void Book :: bookmarkMenu()
 	listDown = button("v", width - kArrowWidth, kListY1 + (visibleRows - 1) * rowHeight, width - 5, kListY1 + visibleRows * rowHeight - 2, uiFont);
 	prbar = progressbar();
 	draw_page(true, false);
-	drawBookmarkMenu();
+	u32 marqueeTick = 0;
+	bool marqueeActive = drawBookmarkMenu();
+	const auto redrawBookmarkMenu = [&](bool resetTick = true) {
+		if(resetTick) marqueeTick = 0;
+		marqueeActive = drawBookmarkMenu(marqueeTick);
+	};
 	while(pumpPowerManagement()) {
 		swiWaitForVBlank();
-		renderer::printClock(bottom_scr);
+		if(marqueeActive) {
+			++marqueeTick;
+			if(0 == (marqueeTick % 6u))
+				redrawBookmarkMenu(false);
+		}
 		scanKeys();
 		int down = keysDown();
 		if(down & KEY_TOUCH) {
 			const float p = prbar.touched();
 			if(tabMarks.touched()) {
 				bookmarkView = bookmarkViewMarks;
-				drawBookmarkMenu();
+				redrawBookmarkMenu();
 			}
 			else if(tabContents.touched()) {
 				bookmarkView = bookmarkViewContents;
 				focusCurrentTocEntry();
-				drawBookmarkMenu();
+				redrawBookmarkMenu();
 			}
 			else if(bookmarkView == bookmarkViewContents) {
 				if(older.touched() && !tocPath.empty()) {
 					leaveTocFolder();
-					drawBookmarkMenu();
+					redrawBookmarkMenu();
 				}
 				else if(newer.touched()) {
-					if(activateTocCursor()) drawBookmarkMenu();
+					if(activateTocCursor()) redrawBookmarkMenu();
 				}
 				else if(listUp.touched() && tocScroll > 0) {
 					--tocScroll;
-					drawBookmarkMenu();
+					redrawBookmarkMenu();
 				}
 				else if(listDown.touched() && tocScroll + bookmarkVisible < tocVisibleEntries.size()) {
 					++tocScroll;
-					drawBookmarkMenu();
+					redrawBookmarkMenu();
 				}
 				else {
 					bool changed = false;
@@ -980,7 +1012,7 @@ void Book :: bookmarkMenu()
 						if(bookmarkRows[i].touched()) {
 							tocCursor = tocScroll + i;
 							clampBookmarkCursor();
-							if(activateTocCursor()) drawBookmarkMenu();
+							if(activateTocCursor()) redrawBookmarkMenu();
 							changed = true;
 							break;
 						}
@@ -992,7 +1024,7 @@ void Book :: bookmarkMenu()
 						queueMarksSave();
 						draw_page(true);
 						focusCurrentTocEntry();
-						drawBookmarkMenu();
+						redrawBookmarkMenu();
 					}
 				}
 			}
@@ -1003,27 +1035,27 @@ void Book :: bookmarkMenu()
 				else
 					bookmarks.erase(current_page);
 				queueMarksSave();
-				drawBookmarkMenu();
+				redrawBookmarkMenu();
 			}
 			else if(newer.touched() && moreNew()) {
 				current_page = *bookmarks.upper_bound(current_page);
 				queueMarksSave();
 				draw_page(true);
-				drawBookmarkMenu();
+				redrawBookmarkMenu();
 			}
 			else if(older.touched() && moreOld()) {
 				current_page = *--bookmarks.lower_bound(current_page);
 				queueMarksSave();
 				draw_page(true);
-				drawBookmarkMenu();
+				redrawBookmarkMenu();
 			}
 			else if(listUp.touched() && bookmarkScroll > 0) {
 				--bookmarkScroll;
-				drawBookmarkMenu();
+				redrawBookmarkMenu();
 			}
 			else if(listDown.touched() && bookmarkScroll + bookmarkVisible < bookmarks.size()) {
 				++bookmarkScroll;
-				drawBookmarkMenu();
+				redrawBookmarkMenu();
 			}
 			else {
 				bool changed = false;
@@ -1038,7 +1070,7 @@ void Book :: bookmarkMenu()
 						break;
 					}
 				if(changed) {
-					drawBookmarkMenu();
+					redrawBookmarkMenu();
 				}
 				else if (p < 1.0f) {
 					u32 parag_num = p * total_paragraths();
@@ -1047,32 +1079,32 @@ void Book :: bookmarkMenu()
 					current_page.line_num = 0;
 					queueMarksSave();
 					draw_page(true);
-					drawBookmarkMenu();
+					redrawBookmarkMenu();
 				}
 			}
 		}
 		else if(down & KEY_START) break;
 		else if(down & KEY_SELECT) {
-			if(activateBookmarkCursor()) drawBookmarkMenu();
+			if(activateBookmarkCursor()) redrawBookmarkMenu();
 		}
 		else if(down & rKey(rUp)) {
 			moveBookmarkCursor(-1);
-			drawBookmarkMenu();
+			redrawBookmarkMenu();
 		}
 		else if(down & rKey(rDown)) {
 			moveBookmarkCursor(1);
-			drawBookmarkMenu();
+			redrawBookmarkMenu();
 		}
 		else if(down & rKey(rLeft)) {
 			if(bookmarkView != bookmarkViewMarks) {
 				if(!tocPath.empty()) {
 					leaveTocFolder();
-					drawBookmarkMenu();
+					redrawBookmarkMenu();
 				}
 				else {
 					bookmarkView = bookmarkViewMarks;
 					clampBookmarkCursor();
-					drawBookmarkMenu();
+					redrawBookmarkMenu();
 				}
 			}
 			else break;
@@ -1081,22 +1113,23 @@ void Book :: bookmarkMenu()
 			if(bookmarkView != bookmarkViewContents) {
 				bookmarkView = bookmarkViewContents;
 				focusCurrentTocEntry();
-				drawBookmarkMenu();
+				redrawBookmarkMenu();
 			}
-			else if(activateBookmarkCursor()) drawBookmarkMenu();
+			else if(activateBookmarkCursor()) redrawBookmarkMenu();
 		}
 	}
 	flushMarks();
 	renderer::clearScreens(settings::bgCol);
 }
 
-void Book :: drawBookmarkMenu()
+bool Book :: drawBookmarkMenu(u32 marqueeStep)
 {
 	renderer::setTopScreenMirror(false);
 	prbar = progressbar();
 	bookmarkRows.clear();
 	bookmarkTargets.clear();
 	tocRowEntries.clear();
+	bool marqueeActive = false;
 
 	const int width = screens::layoutX();
 	const int half = width / 2;
@@ -1137,14 +1170,15 @@ void Book :: drawBookmarkMenu()
 		for(u32 i = *activeScroll; i < tocVisibleEntries.size() && bookmarkVisible < visibleRows; ++i, ++bookmarkVisible) {
 			const int rowTop = kListY1 + bookmarkVisible * rowHeight;
 			const int rowBottom = kListY1 + (bookmarkVisible + 1) * rowHeight - 2;
-			if(i == tocCursor)
+			const bool selected = (i == tocCursor);
+			if(selected)
 				renderer::fillRect(6, rowTop, listRight, rowBottom, Blend(72), bottom_scr);
 			button item("", 6, rowTop, listRight, rowBottom, itemFont);
 			bookmarkRows.push_back(item);
 			const u32 tocIndex = tocVisibleEntries[i];
 			bookmarkTargets.push_back(tocEntries[tocIndex].place);
 			tocRowEntries.push_back(tocIndex);
-			drawBookmarkListRow(6, rowTop, listRight, rowBottom, tocRowLabel(tocIndex), itemFont, minItemFont);
+			marqueeActive = drawBookmarkListRow(6, rowTop, listRight, rowBottom, tocRowLabel(tocIndex), itemFont, minItemFont, selected, marqueeStep) || marqueeActive;
 		}
 	}
 	else {
@@ -1156,14 +1190,15 @@ void Book :: drawBookmarkMenu()
 			}
 			const int rowTop = kListY1 + bookmarkVisible * rowHeight;
 			const int rowBottom = kListY1 + (bookmarkVisible + 1) * rowHeight - 2;
-			if(*activeScroll + bookmarkVisible == bookmarkCursor)
+			const bool selected = (*activeScroll + bookmarkVisible == bookmarkCursor);
+			if(selected)
 				renderer::fillRect(6, rowTop, listRight, rowBottom, Blend(72), bottom_scr);
 			const string progress = progressLabel(it->parag_num, total_paragraths());
 			const string label = paragraphMenuLabel(it->parag_num);
 			button item("", 6, rowTop, listRight, rowBottom, itemFont);
 			bookmarkRows.push_back(item);
 			bookmarkTargets.push_back(*it);
-			drawBookmarkMarkRow(6, rowTop, listRight, rowBottom, progress, label, itemFont, minItemFont);
+			marqueeActive = drawBookmarkMarkRow(6, rowTop, listRight, rowBottom, progress, label, itemFont, minItemFont, selected, marqueeStep) || marqueeActive;
 			++bookmarkVisible;
 		}
 	}
@@ -1180,8 +1215,8 @@ void Book :: drawBookmarkMenu()
 	prbar.draw (float(current_page.parag_num) / total_paragraths());
 	for (std::set<bookmark>::iterator it = bookmarks.begin(); it != bookmarks.end(); ++it)
 		prbar.mark(float(it->parag_num) / total_paragraths());
-	renderer::printClock(bottom_scr, true);
 	setBacklightMode(blOverlay);
+	return marqueeActive;
 }
 
 bool Book :: menu()
@@ -1395,6 +1430,7 @@ void Book :: drawMenu(bool recache)
 bool Book :: brightnessMenu()
 {
 	bool changed = false;
+	bool dirty = true;
 	const int width = screens::layoutX();
 	const int pad = 12;
 	const int levelsY1 = 86;
@@ -1408,37 +1444,40 @@ bool Book :: brightnessMenu()
 	doneButton.enableAutoFit(10);
 
 	while(pumpPowerManagement()) {
-		draw_page(true, false);
-		renderer::clearScreens(settings::bgCol, bottom_scr);
-		renderer::fillRect(pad, 18, width - pad, 70, Blend(18), bottom_scr);
-		renderer::rect(pad, 18, width - pad, 70, bottom_scr);
-		renderer::printStr(eUtf8, bottom_scr, pad + 10, 36, "Adjust Brightness", 0, 0, 14);
-		renderer::printStr(eUtf8, bottom_scr, pad + 10, 58, brightnessLabel(settings::brightness), 0, 0, 11);
+		if(dirty) {
+			draw_page(true, false);
+			renderer::clearScreens(settings::bgCol, bottom_scr);
+			renderer::fillRect(pad, 18, width - pad, 70, Blend(18), bottom_scr);
+			renderer::rect(pad, 18, width - pad, 70, bottom_scr);
+			renderer::printStr(eUtf8, bottom_scr, pad + 10, 36, "Adjust Brightness", 0, 0, 14);
+			renderer::printStr(eUtf8, bottom_scr, pad + 10, 58, brightnessLabel(settings::brightness), 0, 0, 11);
 
-		for(int i = 0; i < 4; ++i) {
-			const int x1 = pad + i * (levelWidth + gap);
-			const int x2 = x1 + levelWidth;
-			if(i == settings::brightness)
-				renderer::fillRect(x1, levelsY1, x2, levelsY2, Blend(72), bottom_scr);
-			levelButtons[i] = button(brightnessLabel(i), x1, levelsY1, x2, levelsY2, 11);
-			levelButtons[i].enableAutoFit(8);
-			levelButtons[i].draw();
+			for(int i = 0; i < 4; ++i) {
+				const int x1 = pad + i * (levelWidth + gap);
+				const int x2 = x1 + levelWidth;
+				if(i == settings::brightness)
+					renderer::fillRect(x1, levelsY1, x2, levelsY2, Blend(72), bottom_scr);
+				levelButtons[i] = button(brightnessLabel(i), x1, levelsY1, x2, levelsY2, 11);
+				levelButtons[i].enableAutoFit(8);
+				levelButtons[i].draw();
+			}
+
+			const int meterX1 = pad;
+			const int meterX2 = width - pad;
+			const int meterY1 = 144;
+			const int meterY2 = 162;
+			renderer::rect(meterX1, meterY1, meterX2, meterY2, bottom_scr);
+			const int stepWidth = (meterX2 - meterX1 - 6) / 4;
+			for(int i = 0; i <= settings::brightness; ++i) {
+				const int x1 = meterX1 + 3 + i * stepWidth;
+				const int x2 = MIN(meterX2 - 3, x1 + stepWidth - 4);
+				renderer::fillRect(x1, meterY1 + 3, x2, meterY2 - 3, Blend(104), bottom_scr);
+			}
+
+			doneButton.draw();
+			setBacklightMode(blOverlay);
+			dirty = false;
 		}
-
-		const int meterX1 = pad;
-		const int meterX2 = width - pad;
-		const int meterY1 = 144;
-		const int meterY2 = 162;
-		renderer::rect(meterX1, meterY1, meterX2, meterY2, bottom_scr);
-		const int stepWidth = (meterX2 - meterX1 - 6) / 4;
-		for(int i = 0; i <= settings::brightness; ++i) {
-			const int x1 = meterX1 + 3 + i * stepWidth;
-			const int x2 = MIN(meterX2 - 3, x1 + stepWidth - 4);
-			renderer::fillRect(x1, meterY1 + 3, x2, meterY2 - 3, Blend(104), bottom_scr);
-		}
-
-		doneButton.draw();
-		setBacklightMode(blOverlay);
 
 		swiWaitForVBlank();
 		scanKeys();
@@ -1451,6 +1490,7 @@ bool Book :: brightnessMenu()
 			if(old != settings::brightness) {
 				applyBrightness();
 				changed = true;
+				dirty = true;
 			}
 			continue;
 		}
@@ -1460,6 +1500,7 @@ bool Book :: brightnessMenu()
 			if(old != settings::brightness) {
 				applyBrightness();
 				changed = true;
+				dirty = true;
 			}
 			continue;
 		}
@@ -1473,6 +1514,7 @@ bool Book :: brightnessMenu()
 				settings::brightness = i;
 				applyBrightness();
 				changed = true;
+				dirty = true;
 			}
 			break;
 		}

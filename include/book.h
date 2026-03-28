@@ -136,7 +136,7 @@ private:
 	void flushMarks();
 	void tickMarksSave();
 	void bookmarkMenu();
-	void drawBookmarkMenu();
+	bool drawBookmarkMenu(u32 marqueeStep = 0);
 	button setMark, older, newer, tabMarks, tabContents, listUp, listDown;
 	progressbar prbar;
 	vector<button> bookmarkRows;
