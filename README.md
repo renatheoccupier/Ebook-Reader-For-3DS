@@ -57,5 +57,18 @@ python3 tools/split_epub.py book.epub out_dir/
 > It may load the file up to 12mb (hmm i guess) but it make loading time long as fk so well i highly recomment you use file around 5mb it will take 20-30s well maybe more or less (i use emulator only) still long as fk but acceptable and it loading screen i hope you will few it less longer
 
 ## Control
-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
 - It not black text in black screen a white text in black screen so don't worry if you not see anything, i'm just too lazy (oh and don't follow the guide in the start screen oh and if you wonder why the start screen missing in the top oh why it feel so blank then yeah it can load image if i not mistake that image should name `rena.png` and have to place in `/3ds/EBookReaderFor3DS/data/` why not in `start_menu_image`folder or something like that? well lazy as fk)
