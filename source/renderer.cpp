@@ -32,7 +32,7 @@ namespace
 {
 
 static const u32 marqueeStartHoldSteps = 16;
-static const u32 marqueeEndHoldSteps = 10;
+static const u32 marqueeEndHoldSteps = 60;
 static const u32 marqueeFramesPerPixel = 1;
 
 int textLimitX(scr_id scr)
@@ -43,6 +43,23 @@ int textLimitX(scr_id scr)
 inline u8 expand5(u8 value)
 {
 	return (value << 3) | (value >> 2);
+}
+
+u8 outputBrightnessScale()
+{
+	static const u8 kScales[] = {10, 18, 25, 31};
+	int level = settings::brightness;
+	clamp(level, 0, 3);
+	return kScales[level];
+}
+
+u16 dimPixel(u16 color, u8 scale)
+{
+	if(scale >= 31) return color;
+	const u8 r = (((color >> 10) & 0x1F) * scale + 15) / 31;
+	const u8 g = (((color >> 5) & 0x1F) * scale + 15) / 31;
+	const u8 b = ((color & 0x1F) * scale + 15) / 31;
+	return BIT(15) | (r << 10) | (g << 5) | b;
 }
 
 bool entryIsDirectory(const string& basePath, const dirent* ent)
@@ -135,6 +152,7 @@ void blitScreen(scr_id scr, gfxScreen_t screen)
 	const int height = 240;
 	const int width = (screen == GFX_TOP) ? 400 : 320;
 	const int copyWidth = MIN(width, screenPixelWidth(scr));
+	const u8 brightnessScale = outputBrightnessScale();
 	u8* fb = gfxGetFramebuffer(screen, GFX_LEFT, NULL, NULL);
 	if(fb == NULL) return;
 
@@ -142,7 +160,7 @@ void blitScreen(scr_id scr, gfxScreen_t screen)
 		u8* dst = fb + srcX * height * 3;
 		const u16* src = &bmp[scr][(kBufferHeight - 1) * kBufferWidth + srcX];
 		for(int y = kBufferHeight - 1; y >= 0; --y) {
-			const u16 pixel = *src;
+			const u16 pixel = dimPixel(*src, brightnessScale);
 			dst[0] = expand5((pixel >> 10) & 0x1F);
 			dst[1] = expand5((pixel >> 5) & 0x1F);
 			dst[2] = expand5(pixel & 0x1F);

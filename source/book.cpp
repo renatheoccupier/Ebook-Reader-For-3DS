@@ -355,6 +355,35 @@ void drawSettingToast(const string& text)
 	drawWrappedText(bottom_scr, x1 + 8, y1 + 7, x2 - x1 - 16, text, 9, 2);
 }
 
+void drawScreenModePreview()
+{
+	const int width = renderer::screenTextWidth(top_scr) - 1;
+	const int x2 = width - 12;
+	const int x1 = MAX(12, x2 - 142);
+	const int y1 = 10;
+	const int y2 = 52;
+	const int topBoxX1 = x1 + 10;
+	const int topBoxX2 = topBoxX1 + 50;
+	const int topBoxY1 = y1 + 21;
+	const int topBoxY2 = topBoxY1 + 10;
+	const int bottomBoxX1 = x1 + 20;
+	const int bottomBoxX2 = bottomBoxX1 + 30;
+	const int bottomBoxY1 = topBoxY2 + 5;
+	const int bottomBoxY2 = bottomBoxY1 + 8;
+	const int labelX = x1 + 70;
+	const bool topActive = (settings::scrConf != scBottom);
+	const bool bottomActive = (settings::scrConf != scTop);
+
+	renderer::fillRect(x1, y1, x2, y2, Blend(18), top_scr);
+	renderer::rect(x1, y1, x2, y2, top_scr);
+	renderer::printStr(eUtf8, top_scr, x1 + 9, y1 + 13, "Screens", 0, 0, 10);
+	renderer::fillRect(topBoxX1, topBoxY1, topBoxX2, topBoxY2, topActive ? Blend(86) : Blend(8), top_scr);
+	renderer::rect(topBoxX1, topBoxY1, topBoxX2, topBoxY2, top_scr);
+	renderer::fillRect(bottomBoxX1, bottomBoxY1, bottomBoxX2, bottomBoxY2, bottomActive ? Blend(86) : Blend(8), top_scr);
+	renderer::rect(bottomBoxX1, bottomBoxY1, bottomBoxX2, bottomBoxY2, top_scr);
+	renderer::printStr(eUtf8, top_scr, labelX, y1 + 20, screenModeLabel(), 0, 0, 12);
+}
+
 int lineScrollForwardKey()
 {
 	switch(settings::layout) {
@@ -1420,6 +1449,7 @@ void Book :: drawMenu(bool recache)
 	->push(SAY(sharp))
 	->push(SAY(language));
 	draw_page(true, recache);
+	drawScreenModePreview();
 	renderer::setTopScreenMirror(false);
 	renderer::clearScreens(settings::bgCol, bottom_scr);
 	menuGrid.draw();

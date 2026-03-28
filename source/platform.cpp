@@ -73,6 +73,8 @@ void applyBacklightState(bool forceMask = false)
 	}
 
 	GSPLCD_SetBrightness(mask, brightnessValue());
+	GSPLCD_SetBrightnessRaw(mask, brightnessValue());
+	renderer::markDirty();
 }
 
 void aptStatusHook(APT_HookType hook, void* param)
