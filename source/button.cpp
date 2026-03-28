@@ -210,14 +210,42 @@ void grid :: print(const string* targ, string mess)
 
 const string* grid :: update()
 {
-	if(more.touched() && nextPage()) return 0;
-	if(less.touched() && prevPage()) return 0;
+	touchPosition t;
+	touchRead(&t);
+
+	const auto touchedAt = [&](button& b, int padLeft, int padTop, int padRight, int padBottom) {
+		int X1 = b.x1, Y1 = b.y1, X2 = b.x2, Y2 = b.y2;
+		toLayoutSpace(X1, Y1);
+		toLayoutSpace(X2, Y2);
+		const int minX = MIN(X1, X2) - padLeft;
+		const int minY = MIN(Y1, Y2) - padTop;
+		const int maxX = MAX(X1, X2) + padRight;
+		const int maxY = MAX(Y1, Y2) + padBottom;
+		if(!(t.px >= minX && t.py >= minY && t.px < maxX && t.py < maxY))
+			return false;
+		u16 dif;
+		if(settings::layout == d0 || settings::layout == d180) dif = abs(X1 - t.px);
+		else dif = abs(Y1 - t.py);
+		b.val = ((2 * dif) / MAX(1, abs(int(b.x2) - int(b.x1)))) ? rRight : rLeft;
+		return true;
+	};
 	
 	for(u32 i = iter; i < cells.size() && i < iter + 9; i++)
-		if(cells[i].touched()) {
+		if(!cells[i].txt.empty()) {
+			const u32 pageIndex = i - iter;
+			const int col = pageIndex % 3;
+			const int row = pageIndex / 3;
+			const int padLeft = (0 == col) ? 8 : 0;
+			const int padTop = (0 == row) ? 6 : 0;
+			const int padRight = (2 == col) ? 8 : 0;
+			const int padBottom = (2 == row) ? 8 : 0;
+			if(!touchedAt(cells[i], padLeft, padTop, padRight, padBottom))
+				continue;
 			val = cells[i].val;
 			return strPtrs[i];
 		}
+	if(touchedAt(more, 0, 0, 0, 0) && nextPage()) return 0;
+	if(touchedAt(less, 0, 0, 0, 0) && prevPage()) return 0;
 	return 0;
 }
 

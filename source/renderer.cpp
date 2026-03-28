@@ -24,6 +24,8 @@ static bool gVideoReady = false;
 static bool gFrameDirty = false;
 static bool gMirrorTopFromBottom = false;
 static bool gPtmuReady = false;
+static bool gTopOutputEnabled = true;
+static bool gBottomOutputEnabled = true;
 
 static const u8 gamma150[32] = {0, 0, 1, 1, 1, 2, 3, 3, 4, 5, 6, 7, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 19, 20, 21, 22, 24, 25, 27, 28, 30, 31};
 static const u8 gamma067[32] = {0, 3, 5, 7, 8, 9, 10, 11, 13, 14, 15, 16, 16, 17, 18, 19, 20, 21, 22, 22, 23, 24, 25, 25, 26, 27, 28, 28, 29, 30, 30, 31};
@@ -31,7 +33,7 @@ static const u8 gamma067[32] = {0, 3, 5, 7, 8, 9, 10, 11, 13, 14, 15, 16, 16, 17
 namespace
 {
 
-static const u32 marqueeStartHoldSteps = 16;
+static const u32 marqueeStartHoldSteps = 0;
 static const u32 marqueeEndHoldSteps = 60;
 static const u32 marqueeFramesPerPixel = 1;
 
@@ -345,6 +347,14 @@ void setTopScreenMirror(bool enabled)
 	markDirty();
 }
 
+void setScreenOutputMask(bool topEnabled, bool bottomEnabled)
+{
+	if(gTopOutputEnabled == topEnabled && gBottomOutputEnabled == bottomEnabled) return;
+	gTopOutputEnabled = topEnabled;
+	gBottomOutputEnabled = bottomEnabled;
+	markDirty();
+}
+
 void present()
 {
 	if(!gVideoReady) return;
@@ -352,8 +362,10 @@ void present()
 		gspWaitForVBlank();
 		return;
 	}
-	blitScreen(gMirrorTopFromBottom ? bottom_scr : top_scr, GFX_TOP);
-	blitScreen(bottom_scr, GFX_BOTTOM);
+	if(gTopOutputEnabled) blitScreen(gMirrorTopFromBottom ? bottom_scr : top_scr, GFX_TOP);
+	else fillFramebuffer(GFX_TOP, 0);
+	if(gBottomOutputEnabled) blitScreen(bottom_scr, GFX_BOTTOM);
+	else fillFramebuffer(GFX_BOTTOM, 0);
 	gfxFlushBuffers();
 	gfxSwapBuffers();
 	gspWaitForVBlank();
@@ -546,38 +558,32 @@ int strWidth(Encoding enc, const string& str, u32 start, u32 end, u8 fontSize, f
 	const bool use_kern = false;
 	FT_UInt glyph_index, old_gi = 0;
 	FT_Vector delta;
-	int i = 0;
-	int prev_width = 0;
-	for(const char* str_it = &str[start], *prev = NULL; str_it < &str[end]; ) {
-		if(breakat != NULL) {
-			if(prev != NULL) *breakat = i - 1;
-			if(width >= spaceleft) {
-				width = prev_width;
-				break;
-			}
-		}
-		prev_width = width;
-		prev = str_it;
-		i++;
-
+	int fitCount = 0;
+	for(const char* str_it = &str[start]; str_it < &str[end]; ) {
 		u32 cp;
 		if(eUtf8 == enc) cp = utf8::unchecked::next(str_it);
 		else cp = cp1251toUtf32[(u8)*str_it++];
 		if(cp == L'­') continue;
 		glyph_index = FT_Get_Char_Index(*fc, cp);
+		int advance = 0;
 		if(use_kern) {
 			FT_Get_Kerning(*fc, old_gi, glyph_index, FT_KERNING_DEFAULT, &delta);
-			width += delta.x >> 6;
+			advance += delta.x >> 6;
 		}
 		FT_Error err = FTC_SBitCache_Lookup(ftcSBitCache, ftcImageType, glyph_index, &ftcSBit, NULL);
 		if(err) {
 			old_gi = 0;
+			++fitCount;
 			continue;
 		}
-		width += ftcSBit->xadvance;
-		if(width > MAX(screens::layoutX(), screenTextWidth(top_scr) - 1)) return 9999;
+		advance += ftcSBit->xadvance;
+		if(width + advance > MAX(screens::layoutX(), screenTextWidth(top_scr) - 1)) return 9999;
+		if(breakat != NULL && width + advance > spaceleft) break;
+		width += advance;
+		++fitCount;
 		old_gi = glyph_index;
 	}
+	if(breakat != NULL) *breakat = fitCount;
 	return width;
 }
 

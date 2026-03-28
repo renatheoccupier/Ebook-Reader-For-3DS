@@ -33,6 +33,7 @@ namespace renderer
 	void present();
 	void markDirty();
 	void setTopScreenMirror(bool enabled);
+	void setScreenOutputMask(bool topEnabled, bool bottomEnabled);
 	void clearScreens(u16 color, u8 onlyone = 42);
 	void rect(u16 x1, u16 y1, u16 x2, u16 y2, scr_id = bottom_scr);
 	void fillRect(u16 x1, u16 y1, u16 x2, u16 y2, u16 col, scr_id = bottom_scr);
